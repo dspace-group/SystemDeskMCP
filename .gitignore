@@ -203,6 +203,9 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# Visual Studio
+.vs
+
 # Ruff stuff:
 .ruff_cache/
 

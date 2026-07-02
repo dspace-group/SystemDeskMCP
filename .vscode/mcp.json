@@ -1,0 +1,10 @@
+{
+	"servers": {
+		"SystemDeskMCP": {
+			"type": "stdio",
+			"command": "${workspaceFolder}\\SystemDeskMCP.cmd",
+			"args": []
+		}
+	},
+	"inputs": []
+}
