@@ -1,3 +1,0 @@
-fastmcp>=3.4.1
-pywin32>=306
-pydantic>=2.0.0

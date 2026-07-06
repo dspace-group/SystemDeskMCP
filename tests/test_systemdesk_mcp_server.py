@@ -1,5 +1,5 @@
 """
-Unit tests for systemdesk_mcp_server.
+Unit tests for systemdesk_mcp.server.
 
 COM is mocked at the _application singleton level — no SystemDesk installation required.
 """
@@ -7,7 +7,7 @@ COM is mocked at the _application singleton level — no SystemDesk installation
 import os
 import pytest
 from unittest.mock import MagicMock, patch
-import src.systemdesk_mcp_server as srv
+import systemdesk_mcp.server as srv
 
 
 @pytest.fixture(autouse=True)

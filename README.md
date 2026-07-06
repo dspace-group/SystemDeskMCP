@@ -8,25 +8,49 @@ SystemDesk acts as a strong partner for AI-driven AUTOSAR generation, where AI a
 ## Prerequisites
 
 - Installed dSPACE SystemDesk with a valid license
-- Python 3.10+ (recommended)
+- Python 3.10 or newer
+- `uv`, the Python package and project manager used to create the environment, install dependencies, and run the server from this checkout. Install it from the official Astral documentation: <https://docs.astral.sh/uv/getting-started/installation/>
 - An MCP client (e.g. VS Code, Cursor, Claude Desktop)
 
 ## Installation
 
 1. Open the repository/folder.
-2. To use the startup script, run `SystemDeskMCP.cmd`. The script creates a `.venv`, installs dependencies from `requirements.txt`, and starts `src\systemdesk_mcp_server.py`.
-3. For manual setup, create and activate a virtual environment, then install dependencies:
+2. Create the project environment and install dependencies from `pyproject.toml`:
 
 ```powershell
-pip install -r requirements.txt
+uv sync
 ```
 
 ## Using with an MCP Client
 
 1. In your MCP client (e.g. VS Code, Claude Code, Cursor, Claude Desktop), add a new MCP server.
-2. Configure it as a **stdio** MCP server:
-    - Startup script: use command `SystemDeskMCP.cmd`.
-    - Manual: use command `python` with argument `src\systemdesk_mcp_server.py` inside an already-prepared environment.
+2. Configure it as a **stdio** MCP server using the following command:
+
+   ```shell
+   uv --directory path\to\this\cloned\repo run python -m systemdesk_mcp.server
+   ```
+
+   For example, as a `.vscode/mcp.json` entry:
+
+      ```json
+      {
+       "servers": {
+        "SystemDeskMCP": {
+         "type": "stdio",
+         "command": "uv",
+         "args": [
+          "--directory",
+          "path\\to\\this\\cloned\\repo",
+          "run",
+          "python",
+          "-m",
+          "systemdesk_mcp.server"
+         ]
+        }
+       }
+      }
+      ```
+
 3. Reconnect/reload MCP servers in your client.
 4. Run a quick check prompt, for example: "Call `start_systemdesk()` and report the result."
 
@@ -49,24 +73,22 @@ Important:
 
 ## Development Setup
 
-Create a virtual environment and install dependencies:
+Create the project environment and install the development dependencies from `pyproject.toml`:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt -r requirements-dev.txt
+uv sync --extra dev
 ```
 
 ### Running Tests
 
 ```powershell
-python -m pytest
+uv run pytest
 ```
 
 To also collect coverage:
 
 ```powershell
-python -m pytest --cov=systemdesk_mcp_server
+uv run pytest --cov=systemdesk_mcp
 ```
 
 For an end-to-end smoke test against an existing SystemDesk installation, use the prompt in `.github/prompts/smoke-test.prompt.md`.
@@ -83,7 +105,7 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 
 ## Extending the Server
 
-Add a new tool by defining a function decorated with `@mcp.tool()` in `systemdesk_mcp_server.py`:
+Add a new tool by defining a function decorated with `@mcp.tool()` in `src/systemdesk_mcp/server.py`:
 
 ```python
 @mcp.tool()
@@ -98,16 +120,14 @@ Use `_get_app()` to access the live SystemDesk COM object.
 
 ## Troubleshooting
 
-- **`win32com is not installed`**: `pip install pywin32`
+- **`win32com is not installed`**: run `uv sync` to install `pywin32`
 - **`class not registered` / `invalid class string`**: check SystemDesk installation/COM registration
 - **`blocked` / `rejected`**: close open dialogs in SystemDesk and try again
 - **`access denied`**: start the MCP server with elevated privileges if needed
 
 ## File Overview
 
-- `src/systemdesk_mcp_server.py`: MCP server and tools
+- `src/systemdesk_mcp/server.py`: MCP server and tools
 - `tests/`: unit tests and ARXML test fixtures
-- `requirements.txt`: Python dependencies for running the MCP server
-- `requirements-dev.txt`: Additional Python dependencies for development
-- `SystemDeskMCP.cmd`: convenience launcher that sets up a `.venv`, installs dependencies, and starts the server
+- `pyproject.toml`: project metadata and Python dependencies (managed with `uv`)
 - `.github/prompts/smoke-test.prompt.md`: end-to-end smoke test prompt
