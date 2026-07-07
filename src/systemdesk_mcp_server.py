@@ -45,7 +45,7 @@ mcp = FastMCP(
 # COM connection state (module-level singleton)
 # ---------------------------------------------------------------------------
 
-_application = None  # holds the COM IApplication object
+_application = None  # pylint: disable=invalid-name  # holds the COM IApplication object
 
 
 def _get_app():
@@ -95,11 +95,11 @@ _com_executor = concurrent.futures.ThreadPoolExecutor(
 def _shutdown_com_executor():
     try:
         def _cleanup():
-            global _application
+            global _application  # pylint: disable=global-statement
             _application = None  # release COM proxy before uninitialising
             pythoncom.CoUninitialize()
         _com_executor.submit(_cleanup).result(timeout=5)
-    except Exception:
+    except Exception:  # pylint: disable=broad-exception-caught
         pass
     _com_executor.shutdown(wait=False)
 
@@ -151,7 +151,7 @@ def _logged(fn):
                 outcome = result.get("status", "unknown")
             else:
                 outcome = json.loads(result).get("status", "unknown")
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             outcome = "unknown"
         _logger.info(json.dumps({
             "correlation_id": correlation_id,
@@ -171,6 +171,8 @@ def _logged(fn):
 
 
 class CloseSystemDeskInput(BaseModel):
+    """Input schema for close_systemdesk."""
+
     save_project: bool = Field(
         default=True,
         description=(
@@ -181,6 +183,8 @@ class CloseSystemDeskInput(BaseModel):
 
 
 class CreateProjectInput(BaseModel):
+    """Input schema for create_project."""
+
     project_path: str = Field(
         description=(
             "Absolute path to the directory where the project file will be created. "
@@ -196,6 +200,8 @@ class CreateProjectInput(BaseModel):
 
 
 class CloseProjectInput(BaseModel):
+    """Input schema for close_project."""
+
     save_project: bool = Field(
         default=True,
         description=(
@@ -206,6 +212,8 @@ class CloseProjectInput(BaseModel):
 
 
 class ImportAutosarFileInput(BaseModel):
+    """Input schema for import_autosar_file."""
+
     file_path: str = Field(
         description=(
             "Absolute path to the AUTOSAR file (.arxml) to import. "
@@ -219,11 +227,15 @@ class ImportAutosarFileInput(BaseModel):
 
 
 class ValidateOutputFormat(str, Enum):
+    """Allowed output formats for validate_autosar."""
+
     MARKDOWN = "markdown"
     JSON = "json"
 
 
 class ValidateAutosarInput(BaseModel):
+    """Input schema for validate_autosar."""
+
     output_format: ValidateOutputFormat = Field(
         default=ValidateOutputFormat.MARKDOWN,
         description=(
@@ -273,9 +285,9 @@ def start_systemdesk(
     Hint: This tool does not provide a timeout parameter,
     because opening the COM connection has an inherent timeout.
     """
-    global _application
+    global _application  # pylint: disable=global-statement
     try:
-        import win32com.client
+        import win32com.client # pylint: disable=import-outside-toplevel
     except ImportError:
         return _error(
             "win32com is not installed. Install pywin32 to use this tool.",
@@ -293,7 +305,7 @@ def start_systemdesk(
                 "application_root_dir": root_dir,
                 "message": "SystemDesk is already running. Reusing existing COM connection.",
             })
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             _application = None  # stale connection, reconnect below
 
     try:
@@ -305,7 +317,7 @@ def start_systemdesk(
             "application_root_dir": root_dir,
             "message": "SystemDesk started and COM connection established.",
         })
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-exception-caught
         exc_str = str(exc)
         _application = None
 
@@ -369,7 +381,7 @@ def close_systemdesk(
     - transient / Quit call failed (returns immediately)
     """
     params = CloseSystemDeskInput(save_project=save_project)
-    global _application
+    global _application  # pylint: disable=global-statement
     try:
         app = _get_app()
 
@@ -378,7 +390,7 @@ def close_systemdesk(
                 active_project = app.ActiveProject
                 if active_project is not None:
                     active_project.Save()
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-exception-caught
                 return _error(
                     "Failed to save project before closing SystemDesk.",
                     error_type="transient",
@@ -391,7 +403,7 @@ def close_systemdesk(
 
     except _PermanentError as exc:
         return _error(str(exc), error_type="permanent")
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-exception-caught
         return _error(
             "Failed to close SystemDesk.",
             error_type="transient",
@@ -422,7 +434,7 @@ def get_systemdesk_status() -> dict[str, Any]:
 
     Failure codes (error_type / condition): None
     """
-    global _application
+    global _application  # pylint: disable=global-statement
 
     if _application is None:
         return _ok(
@@ -454,7 +466,7 @@ def get_systemdesk_status() -> dict[str, Any]:
                 "message": "SystemDesk is running and a project is open.",
             }
         )
-    except Exception:
+    except Exception:  # pylint: disable=broad-exception-caught
         # Stale COM proxy or process closed unexpectedly.
         _application = None
         return _ok(
@@ -527,7 +539,7 @@ def create_project(
 
     except _PermanentError as exc:
         return _error(str(exc), error_type="permanent")
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-exception-caught
         return _error(
             f"Failed to create project '{params.project_name}'.",
             error_type="transient",
@@ -587,7 +599,7 @@ def close_project(
 
     except _PermanentError as exc:
         return _error(str(exc), error_type="permanent")
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-exception-caught
         return _error(
             "Failed to close the project.",
             error_type="transient",
@@ -648,7 +660,7 @@ def import_autosar_file(
                 error_type="permanent",
             )
 
-        if not params.file_path.lower().endswith(".arxml"):
+        if not params.file_path.lower().endswith(".arxml"): # pylint: disable=no-member
             return _error(
                 f"Unsupported file extension for '{params.file_path}'. "
                 "Only .arxml files are supported.",
@@ -662,19 +674,16 @@ def import_autosar_file(
                 error_type="permanent",
             )
 
-        importDiagrams = True  # could be made an input parameter if needed
-        optionShowImportDialog=False  # set to True to show the standard import dialog (not recommended for automation)
-
-        importExportFile = active_project.ImportExportFiles.Add(params.file_path)
-        importExportFile.AddNewElementsToConfiguration = True
-        importExportFile.ExportDiagrams = importDiagrams
-        importExportFile.ImportDiagrams = importDiagrams
-        importExportFile.ImportAllElements = True
-        importExportFile.ShowImportDialog = optionShowImportDialog
+        import_export_file = active_project.ImportExportFiles.Add(params.file_path)
+        import_export_file.AddNewElementsToConfiguration = True
+        import_export_file.ExportDiagrams = True
+        import_export_file.ImportDiagrams = True
+        import_export_file.ImportAllElements = True
+        import_export_file.ShowImportDialog = False
 
         # Now import the file. Runs on the dedicated COM apartment thread;
         # the timeout is enforced by the @_on_com_thread decorator.
-        importExportFile.Import()
+        import_export_file.Import()
         return _ok({
             "imported_file": params.file_path,
             "message": (
@@ -685,7 +694,7 @@ def import_autosar_file(
 
     except _PermanentError as exc:
         return _error(str(exc), error_type="permanent")
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-exception-caught
         return _error(
             f"Failed to import AUTOSAR file '{params.file_path}'.",
             error_type="transient",
@@ -775,17 +784,17 @@ def validate_autosar(
                 "total_count": len(messages),
                 "report": "\n".join(lines),
             })
-        else:
-            return _ok({
-                "error_count": error_count,
-                "warning_count": warning_count,
-                "total_count": len(messages),
-                "messages": messages,
-            })
+
+        return _ok({
+            "error_count": error_count,
+            "warning_count": warning_count,
+            "total_count": len(messages),
+            "messages": messages,
+        })
 
     except _PermanentError as exc:
         return _error(str(exc), error_type="permanent")
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-exception-caught
         return _error(
             "Failed to validate the project.",
             error_type="transient",

@@ -3,10 +3,12 @@ Unit tests for systemdesk_mcp_server.
 
 COM is mocked at the _application singleton level — no SystemDesk installation required.
 """
+# pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
 import os
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 import src.systemdesk_mcp_server as srv
 
 
@@ -17,7 +19,7 @@ def reset_com_singleton():
     srv._application = saved
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def app():
     mock = MagicMock()
     srv._application = mock
@@ -158,7 +160,7 @@ def test_close_project_without_save(app):
     active_project.Close.assert_called_once_with(False)
 
 
-def test_import_autosar_wrong_extension(app, tmp_path):
+def test_import_autosar_wrong_extension(tmp_path):
     # arrange
     xml_file = tmp_path / "file.xml"
     xml_file.write_text("<data/>")
@@ -171,7 +173,7 @@ def test_import_autosar_wrong_extension(app, tmp_path):
     assert "arxml" in result["message"].lower()
 
 
-def test_import_autosar_file_not_found(app):
+def test_import_autosar_file_not_found():
     # act
     result = srv.import_autosar_file("C:\\nonexistent\\file.arxml")
 

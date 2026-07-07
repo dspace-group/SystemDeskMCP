@@ -1,0 +1,5 @@
+[MAIN]
+ignore-patterns=^\.venv/.*,^\.git/.*
+
+[FORMAT]
+max-line-length=160
