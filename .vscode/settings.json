@@ -1,7 +1,15 @@
 {
+    "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
     "python.testing.pytestArgs": [
         "tests"
     ],
     "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
+    "python.testing.pytestEnabled": true,
+    "pylint.importStrategy": "fromEnvironment",
+    "pylint.interpreter": [
+        "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+    ],
+    "pylint.args": [
+        "--rcfile=${workspaceFolder}/.pylintrc"
+    ]
 }

@@ -807,6 +807,7 @@ def validate_autosar(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    """Start the MCP server with stdio transport."""
     mcp.run(transport="stdio")
 
 
