@@ -27,7 +27,7 @@ uv sync
 2. Configure it as a **stdio** MCP server using the following command:
 
    ```shell
-   uv --directory path\to\this\cloned\repo run python -m systemdesk_mcp.server
+    path\to\this\cloned\repo\SystemDeskMCP.cmd
    ```
 
    For example, as a `.vscode/mcp.json` entry:
@@ -37,15 +37,8 @@ uv sync
        "servers": {
         "SystemDeskMCP": {
          "type": "stdio",
-         "command": "uv",
-         "args": [
-          "--directory",
-          "path\\to\\this\\cloned\\repo",
-          "run",
-          "python",
-          "-m",
-          "systemdesk_mcp.server"
-         ]
+         "command": "path\\to\\this\\cloned\\repo\\SystemDeskMCP.cmd",
+         "args": []
         }
        }
       }
@@ -130,4 +123,5 @@ Use `_get_app()` to access the live SystemDesk COM object.
 - `src/systemdesk_mcp/server.py`: MCP server and tools
 - `tests/`: unit tests and ARXML test fixtures
 - `pyproject.toml`: project metadata and Python dependencies (managed with `uv`)
+- `SystemDeskMCP.cmd`: Convenience launcher used by MCP clients
 - `.github/prompts/smoke-test.prompt.md`: end-to-end smoke test prompt

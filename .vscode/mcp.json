@@ -2,15 +2,8 @@
 	"servers": {
 		"SystemDeskMCP": {
 			"type": "stdio",
-			"command": "uv",
-			"args": [
-				"--directory",
-				"${workspaceFolder}",
-				"run",
-				"python",
-				"-m",
-				"systemdesk_mcp.server"
-			]
+			"command": "${workspaceFolder}\\SystemDeskMCP.cmd",
+			"args": []
 		}
 	},
 	"inputs": []
