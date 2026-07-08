@@ -9,16 +9,16 @@ description = "Python MCP server for automating dSPACE SystemDesk"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "fastmcp>=3.4.1",
-    "pywin32>=306",
-    "pydantic>=2.0.0",
+    "fastmcp>=3.4.1,<4",
+    "pywin32==312",
+    "pydantic>=2.0.0,<3",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pylint>=4.0.0",
-    "pytest>=8.0.0",
-    "pytest-cov>=6.0.0",
+    "pylint>=4.0.0,<5",
+    "pytest>=8.0.0,<9",
+    "pytest-cov>=6.0.0,<7",
 ]
 
 [project.scripts]
