@@ -15,7 +15,7 @@ SystemDesk acts as a strong partner for AI-driven AUTOSAR generation, where AI a
 ## Installation
 
 1. Open the repository/folder.
-2. Create the project environment and install dependencies from `pyproject.toml`:
+2. Create the project environment and install dependencies from `pyproject.toml` using the following command:
 
 ```powershell
 uv sync
@@ -26,7 +26,7 @@ uv sync
 1. In your MCP client (e.g. VS Code, Claude Code, Cursor, Claude Desktop), add a new MCP server.
 2. Configure it as a **stdio** MCP server using the following command:
 
-   ```shell
+   ```powershell
     path\to\this\cloned\repo\SystemDeskMCP.cmd
    ```
 
@@ -66,7 +66,7 @@ Important:
 
 ## Development Setup
 
-Create the project environment and install the development dependencies from `pyproject.toml`:
+Create the project environment and install the development dependencies from `pyproject.toml` using the following command:
 
 ```powershell
 uv sync --extra dev
