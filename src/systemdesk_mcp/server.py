@@ -806,5 +806,10 @@ def validate_autosar(
 # Entry point
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
+def main() -> None:
+    """Start the MCP server with stdio transport."""
     mcp.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    main()
