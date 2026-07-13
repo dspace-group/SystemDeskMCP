@@ -16,7 +16,7 @@ import logging
 import time
 import uuid
 from enum import Enum
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Iterable, Optional
 
 import pythoncom
 from fastmcp import FastMCP
@@ -683,7 +683,16 @@ def import_autosar_file(
 
         # Now import the file. Runs on the dedicated COM apartment thread;
         # the timeout is enforced by the @_on_com_thread decorator.
-        import_export_file.Import()
+        result = import_export_file.Import()
+        if not result:
+            import_export_file.Delete()
+
+            return _error(
+                f"Failed to import AUTOSAR file '{params.file_path}'.",
+                error_type="permanent",
+                details=_get_import_autosar_file_error_details(),
+            )
+
         return _ok({
             "imported_file": params.file_path,
             "message": (
@@ -700,6 +709,21 @@ def import_autosar_file(
             error_type="transient",
             details=str(exc),
         )
+
+def _get_import_autosar_file_error_details() -> str:
+    app = _get_app()
+    last_message = app.Messages.Elements[-1]
+    if last_message.MessageIdentifier != 'Info(93,600,17)': # ID of "Preparing import" message, stable across SystemDesk versions
+        return "Unknown error"
+
+    details = '\n'.join(_dump_message(last_message))
+    return details
+
+def _dump_message(message, indent=0) -> Iterable[str]:
+    yield f'{' ' * indent}[{message.Severity}] {message.MessageText}'
+
+    for child in message.Children.Elements:
+        yield from _dump_message(child, indent=indent + 2)
 
 
 @mcp.tool(
