@@ -281,12 +281,12 @@ def test_create_project_success(app, tmp_path):
 def test_validate_autosar_with_error(app):
     # arrange
     app.ActiveProject.Validate.Do.return_value = False
-    msg = MagicMock()
-    msg.Severity = "Error"
-    msg.RuleId = "R101"
-    msg.Message.Text = "Missing reference"
-    msg.Entity.AUTOSARPathName = "/R344_invalid/SWC"
-    app.ActiveProject.Validate.ResultStructure.RuleResults = [msg]
+    rule_result = MagicMock()
+    rule_result.Severity = "Error"
+    rule_result.RuleId = "R101"
+    rule_result.Message.Text = "Missing reference"
+    rule_result.Entity.AUTOSARPathName = "/R344_invalid/SWC"
+    app.ActiveProject.Validate.ResultStructure.RuleResults = [rule_result]
 
     # act
     result = srv.validate_autosar()
@@ -304,12 +304,12 @@ def test_validate_autosar_with_error(app):
 def test_validate_autosar_with_warning(app):
     # arrange
     app.ActiveProject.Validate.Do.return_value = True
-    msg = MagicMock()
-    msg.Severity = "Warning"
-    msg.RuleId = "R210"
-    msg.Message.Text = "Signal has no default value"
-    msg.Entity.AUTOSARPathName = "/System/Signals/VehicleSpeed"
-    app.ActiveProject.Validate.ResultStructure.RuleResults = [msg]
+    rule_result = MagicMock()
+    rule_result.Severity = "Warning"
+    rule_result.RuleId = "R210"
+    rule_result.Message.Text = "Signal has no default value"
+    rule_result.Entity.AUTOSARPathName = "/System/Signals/VehicleSpeed"
+    app.ActiveProject.Validate.ResultStructure.RuleResults = [rule_result]
 
     # act
     result = srv.validate_autosar()
@@ -322,6 +322,82 @@ def test_validate_autosar_with_warning(app):
     assert "R210" in result["report"]
     assert "Signal has no default value" in result["report"]
     assert "/System/Signals/VehicleSpeed" in result["report"]
+
+
+def test_validate_autosar_with_child_messages_markdown(app):
+    # arrange
+    app.ActiveProject.Validate.Do.return_value = False
+
+    rule_result = MagicMock()
+    rule_result.Severity = "Error"
+    rule_result.RuleId = "R101"
+    rule_result.Message.Text = "Main information\nwith multiple lines"
+    rule_result.Entity.AUTOSARPathName = "/R344_invalid/SWC"
+
+    child_message1 = MagicMock()
+    child_message1.Text = "Level 1 info"
+    rule_result.Message.ChildMessages = [child_message1]
+
+    child_message2 = MagicMock()
+    child_message2.Text = "Level 2 info"
+    child_message1.ChildMessages = [child_message2]
+
+    app.ActiveProject.Validate.ResultStructure.RuleResults = [rule_result]
+
+    # act
+    result = srv.validate_autosar()
+
+    # assert
+    assert result["status"] == "success"
+    assert result["error_count"] == 1
+    assert "Main information<br>with multiple lines<br>Level 1 info<br>Level 2 info" in result["report"]
+
+
+def test_validate_autosar_with_child_messages_json(app):
+    # arrange
+    app.ActiveProject.Validate.Do.return_value = False
+
+    rule_result = MagicMock()
+    rule_result.Severity = "Error"
+    rule_result.RuleId = "R101"
+    rule_result.Message.Text = "Main information\nwith multiple lines"
+    rule_result.Entity.AUTOSARPathName = "/R344_invalid/SWC"
+
+    child_message1 = MagicMock()
+    child_message1.Text = "Level 1 info"
+    rule_result.Message.ChildMessages = [child_message1]
+
+    child_message2 = MagicMock()
+    child_message2.Text = "Level 2 info"
+    child_message1.ChildMessages = [child_message2]
+
+    app.ActiveProject.Validate.ResultStructure.RuleResults = [rule_result]
+
+    # act
+    result = srv.validate_autosar(output_format=srv.ValidateOutputFormat.JSON)
+
+    # assert
+    assert result["status"] == "success"
+    assert result["error_count"] == 1
+    assert result["messages"] == [
+        {
+            "severity": "Error",
+            "rule": "R101",
+            "description": "Main information\nwith multiple lines",
+            "description_details": [
+                {
+                    "text": "Level 1 info",
+                    "children": [
+                        {
+                            "text": "Level 2 info",
+                            "children": []
+                        }
+                    ]
+                }
+            ],
+            "element": "/R344_invalid/SWC",
+        }
+    ]
 
 
 def test_validate_autosar_with_no_results(app):

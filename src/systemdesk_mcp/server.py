@@ -774,30 +774,38 @@ def validate_autosar(
         # is enforced by the @_on_com_thread decorator.
         active_project.Validate.Do()
 
-        messages = []
+        rule_results = []
         for msg in active_project.Validate.ResultStructure.RuleResults:
-            messages.append({
+            rule_results.append({
                 "severity": msg.Severity,
                 "rule": msg.RuleId,
                 "description": msg.Message.Text,
+                "description_details": _get_description_details(msg.Message),
                 "element": msg.Entity.AUTOSARPathName if hasattr(msg.Entity, "AUTOSARPathName") else "N/A",
             })
 
-        error_count = sum(1 for m in messages if m["severity"] == "Error")
-        warning_count = sum(1 for m in messages if m["severity"] == "Warning")
+        error_count = sum(1 for r in rule_results if r["severity"] == "Error")
+        warning_count = sum(1 for r in rule_results if r["severity"] == "Warning")
 
         if params.output_format == ValidateOutputFormat.MARKDOWN:
             lines = [
                 "# Validation Result",
-                f"**Errors:** {error_count} | **Warnings:** {warning_count} | **Total:** {len(messages)}",
+                f"**Errors:** {error_count} | **Warnings:** {warning_count} | **Total:** {len(rule_results)}",
                 "",
             ]
-            if messages:
+            if rule_results:
                 lines.append("| Severity | Rule | Description | Element |")
                 lines.append("|---|---|---|---|")
-                for m in messages:
+                for r in rule_results:
+                    description_parts = [
+                        r["description"],
+                        *_flatten_description_details(r["description_details"]),
+                    ]
+                    description = "<br>".join(
+                        _markdown_line_breaks(part) for part in description_parts
+                    )
                     lines.append(
-                        f"| {m['severity']} | {m['rule']} | {m['description']} | {m['element']} |"
+                        f"| {r['severity']} | {r['rule']} | {description} | {r['element']} |"
                     )
             else:
                 lines.append("✅ No validation issues found.")
@@ -805,15 +813,15 @@ def validate_autosar(
             return _ok({
                 "error_count": error_count,
                 "warning_count": warning_count,
-                "total_count": len(messages),
+                "total_count": len(rule_results),
                 "report": "\n".join(lines),
             })
 
         return _ok({
             "error_count": error_count,
             "warning_count": warning_count,
-            "total_count": len(messages),
-            "messages": messages,
+            "total_count": len(rule_results),
+            "messages": rule_results,
         })
 
     except _PermanentError as exc:
@@ -824,6 +832,23 @@ def validate_autosar(
             error_type="transient",
             details=str(exc),
         )
+
+def _get_description_details(validation_message) -> list[dict[str, Any]]:
+    return [
+        {
+            "text": child.Text,
+            "children": _get_description_details(child),
+        }
+        for child in validation_message.ChildMessages
+    ]
+
+def _flatten_description_details(details: list[dict[str, Any]]) -> Iterable[str]:
+    for detail in details:
+        yield detail["text"]
+        yield from _flatten_description_details(detail["children"])
+
+def _markdown_line_breaks(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
 
 
 # ---------------------------------------------------------------------------
