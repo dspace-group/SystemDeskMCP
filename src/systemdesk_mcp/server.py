@@ -654,25 +654,20 @@ def import_autosar_file(
         app = _get_app()
 
         if not os.path.isfile(params.file_path):
-            return _error(
+            raise _PermanentError(
                 f"File not found: '{params.file_path}'. "
-                "Provide an absolute path to an existing .arxml file.",
-                error_type="permanent",
-            )
+                "Provide an absolute path to an existing .arxml file.")
 
         if not params.file_path.lower().endswith(".arxml"): # pylint: disable=no-member
-            return _error(
+            raise _PermanentError(
                 f"Unsupported file extension for '{params.file_path}'. "
-                "Only .arxml files are supported.",
-                error_type="permanent",
-            )
+                "Only .arxml files are supported.")
 
         active_project = app.ActiveProject
         if active_project is None:
-            return _error(
-                "No project is currently open. Call create_project or open a project first.",
-                error_type="permanent",
-            )
+            raise _PermanentError(
+                "No project is currently open. "
+                "Call create_project or open a project first.")
 
         import_export_file = active_project.ImportExportFiles.Add(params.file_path)
         import_export_file.AddNewElementsToConfiguration = True
@@ -720,7 +715,7 @@ def _get_import_autosar_file_error_details() -> str:
     return details
 
 def _dump_message(message, indent=0) -> Iterable[str]:
-    yield f'{' ' * indent}[{message.Severity}] {message.MessageText}'
+    yield f'{" " * indent}[{message.Severity}] {message.MessageText}'
 
     for child in message.Children.Elements:
         yield from _dump_message(child, indent=indent + 2)
@@ -765,10 +760,7 @@ def validate_autosar(
 
         active_project = app.ActiveProject
         if active_project is None:
-            return _error(
-                "No project is currently open. Call create_project or open a project first.",
-                error_type="permanent",
-            )
+            raise _PermanentError("No project is currently open. Call create_project or open a project first.")
 
         # Validation runs on the dedicated COM apartment thread; the timeout
         # is enforced by the @_on_com_thread decorator.
