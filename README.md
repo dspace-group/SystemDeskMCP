@@ -125,3 +125,8 @@ Use `_get_app()` to access the live SystemDesk COM object.
 - `pyproject.toml`: project metadata and Python dependencies (managed with `uv`)
 - `SystemDeskMCP.cmd`: Convenience launcher used by MCP clients
 - `.github/prompts/smoke-test.prompt.md`: end-to-end smoke test prompt
+
+## Support
+
+For technical questions and issues related to the dSPACE MCP Servers and related GitHub repositories, please open a GitHub issue.  
+As a valued dSPACE customer, you are always welcome to contact dSPACE Support directly via http://www.dspace.com/go/supportrequest.
