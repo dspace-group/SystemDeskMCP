@@ -629,6 +629,8 @@ def close_project(params: CloseProjectInput) -> dict[str, Any]:
 
     Optionally saves the project before closing.
     After closing, a new project can be created or opened.
+    If no project is open, this is a no-op and returns success with only a message
+    (no project_name or saved flag).
 
     Precondition: start_systemdesk must be called first.
     Returns project_name and saved flag on success.
