@@ -345,8 +345,9 @@ def start_systemdesk(
     Start SystemDesk and establish a COM connection.
 
     If SystemDesk is already running, reconnects to the existing instance.
-    Must be called before using any other SystemDesk tool.
-
+    Must be called before using any other SystemDesk tool except `get_systemdesk_status`.
+    
+    Precondition: None, may be called at any time.
     Returns the ApplicationRootDir and the resolved ProgID on success.
 
     Failure codes (error_type / error_code: condition):
