@@ -131,9 +131,14 @@ def my_new_tool(params: MyNewToolInput) -> dict[str, Any]:
         # ... call app.* COM methods using params.element_path ...
         return _ok({"message": "Done."})
     except _PermanentError as exc:
-        return _error(str(exc), error_type="permanent")
+        return _error(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        return _error("my_new_tool failed.", error_type="transient", details=str(exc))
+        return _error(
+            "my_new_tool failed.",
+            error_type="transient",
+            error_code=ErrorCode.MY_NEW_TOOL_FAILED,
+            details=str(exc),
+        )
 ```
 
 Notes:
@@ -141,7 +146,8 @@ Notes:
 - Use `_get_app()` to access the live SystemDesk COM object.
 - `@_on_com_thread` runs the tool on the dedicated COM thread. If the model has a `timeout` field, it is used as the call timeout.
 - `@_logged` writes a structured log entry for every call.
-- Return `_ok(...)` or `_error(...)` so that every tool has the same `status` / `error_type` response format.
+- Return `_ok(...)` or `_error(...)` so that every tool has the same `status` / `error_type` / `error_code` response format.
+- Use a stable UPPER_SNAKE_CASE `error_code` per failure condition: add it as a member of the `ErrorCode` enum (e.g. `MY_NEW_TOOL_FAILED = "MY_NEW_TOOL_FAILED"`), pass `ErrorCode.<MEMBER>` to `_error(...)` or `_PermanentError(message, error_code=...)`, and list it in the tool's "Failure codes" docstring section.
 
 ## Troubleshooting
 

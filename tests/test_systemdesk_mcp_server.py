@@ -41,6 +41,7 @@ def test_start_systemdesk_win32com_missing():
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
+    assert result["error_code"] == "WIN32COM_NOT_INSTALLED"
 
 
 def test_close_systemdesk_not_started():
@@ -54,6 +55,7 @@ def test_close_systemdesk_not_started():
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
+    assert result["error_code"] == "SYSTEMDESK_NOT_RUNNING"
 
 
 def test_get_systemdesk_status_not_running():
@@ -174,6 +176,7 @@ def test_import_autosar_wrong_extension(tmp_path):
 
     # assert
     assert result["status"] == "error"
+    assert result["error_code"] == "UNSUPPORTED_FILE_EXTENSION"
     assert "arxml" in result["message"].lower()
 
 
@@ -186,6 +189,7 @@ def test_import_autosar_file_not_found():
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
+    assert result["error_code"] == "FILE_NOT_FOUND"
 
 
 def test_import_autosar_file_success(app, tmp_path):
@@ -242,6 +246,7 @@ def test_import_autosar_file_schema_error(app, tmp_path):
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
+    assert result["error_code"] == "IMPORT_REJECTED"
     assert result["details"] == "[Info] Preparing\n  [Info] Validating\n    [Error] Invalid element\n  [Error] Import failed"
     active_project.ImportExportFiles.Add.assert_called_once_with(str(arxml_file))
     import_export_file.Import.assert_called_once()
@@ -260,6 +265,7 @@ def test_import_autosar_no_project_open(app, tmp_path):
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
+    assert result["error_code"] == "NO_PROJECT_OPEN"
     assert "no project is currently open" in result["message"].lower()
 
 
@@ -436,6 +442,7 @@ def test_validate_autosar_no_project_open(app):
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
+    assert result["error_code"] == "NO_PROJECT_OPEN"
     assert "no project is currently open" in result["message"].lower()
 
 

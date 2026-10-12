@@ -37,9 +37,37 @@ mcp = FastMCP(
         "AUTOSAR files must use the .arxml extension. "
         "All tools return a JSON dictionary with a 'status' field ('success' or 'error'). "
         "On error, 'error_type' is either 'permanent' (do not retry, halt or escalate) "
-        "or 'transient' (retryable with backoff)."
+        "or 'transient' (retryable with backoff), and 'error_code' is a stable "
+        "machine-parseable code identifying the failure condition (e.g. 'NO_PROJECT_OPEN')."
     ),
 )
+
+# ---------------------------------------------------------------------------
+# Error codes
+# ---------------------------------------------------------------------------
+
+
+class ErrorCode(str, Enum):
+    """Stable, machine-parseable error codes returned in the 'error_code' field."""
+
+    SYSTEMDESK_NOT_RUNNING = "SYSTEMDESK_NOT_RUNNING"
+    TIMEOUT = "TIMEOUT"
+    WIN32COM_NOT_INSTALLED = "WIN32COM_NOT_INSTALLED"
+    PROGID_NOT_REGISTERED = "PROGID_NOT_REGISTERED"
+    ACCESS_DENIED = "ACCESS_DENIED"
+    BLOCKED_BY_DIALOG = "BLOCKED_BY_DIALOG"
+    START_FAILED = "START_FAILED"
+    PROJECT_SAVE_FAILED = "PROJECT_SAVE_FAILED"
+    QUIT_FAILED = "QUIT_FAILED"
+    PROJECT_CREATION_FAILED = "PROJECT_CREATION_FAILED"
+    PROJECT_CLOSE_FAILED = "PROJECT_CLOSE_FAILED"
+    FILE_NOT_FOUND = "FILE_NOT_FOUND"
+    UNSUPPORTED_FILE_EXTENSION = "UNSUPPORTED_FILE_EXTENSION"
+    NO_PROJECT_OPEN = "NO_PROJECT_OPEN"
+    IMPORT_REJECTED = "IMPORT_REJECTED"
+    IMPORT_FAILED = "IMPORT_FAILED"
+    VALIDATION_FAILED = "VALIDATION_FAILED"
+
 
 # ---------------------------------------------------------------------------
 # COM connection state (module-level singleton)
@@ -52,13 +80,18 @@ def _get_app():
     """Return the active SystemDesk COM connection or raise a permanent error."""
     if _application is None:
         raise _PermanentError(
-            "SystemDesk is not running. Call start_systemdesk first."
+            "SystemDesk is not running. Call start_systemdesk first.",
+            error_code=ErrorCode.SYSTEMDESK_NOT_RUNNING,
         )
     return _application
 
 
 class _PermanentError(Exception):
     """Signals a permanent (non-retryable) failure."""
+
+    def __init__(self, message: str, error_code: ErrorCode):
+        super().__init__(message)
+        self.error_code = error_code
 
 
 class _TransientError(Exception):
@@ -71,10 +104,16 @@ def _ok(data: dict[str, Any]) -> dict[str, Any]:
 
 def _error(
     message: str,
-    error_type: str = "permanent",
+    error_type: str,
+    error_code: ErrorCode,
     details: Optional[str] = None,
 ) -> dict[str, Any]:
-    payload = {"status": "error", "error_type": error_type, "message": message}
+    payload = {
+        "status": "error",
+        "error_type": error_type,
+        "error_code": error_code.value,
+        "message": message,
+    }
     if details:
         payload["details"] = details
     return payload
@@ -125,6 +164,7 @@ def _on_com_thread(fn):
                 + (f" after {timeout}s." if timeout else ".")
                 + " SystemDesk may still be processing the request.",
                 error_type="transient",
+                error_code=ErrorCode.TIMEOUT,
             )
 
     return wrapper
@@ -281,11 +321,12 @@ def start_systemdesk(
 
     Returns the ApplicationRootDir and the resolved ProgID on success.
 
-    Failure codes (error_type / condition):
-    - permanent / win32com not installed
-    - permanent / SystemDesk ProgID not registered
-    - permanent / access denied
-    - transient / SystemDesk blocked by open dialog
+    Failure codes (error_type / error_code: condition):
+    - permanent / WIN32COM_NOT_INSTALLED: win32com not installed
+    - permanent / PROGID_NOT_REGISTERED: SystemDesk ProgID not registered
+    - permanent / ACCESS_DENIED: access denied
+    - transient / BLOCKED_BY_DIALOG: SystemDesk blocked by open dialog
+    - transient / START_FAILED: other failure while starting SystemDesk
 
     Hint: This tool does not provide a timeout parameter,
     because opening the COM connection has an inherent timeout.
@@ -297,6 +338,7 @@ def start_systemdesk(
         return _error(
             "win32com is not installed. Install pywin32 to use this tool.",
             error_type="permanent",
+            error_code=ErrorCode.WIN32COM_NOT_INSTALLED,
         )
 
     prog_id = "SystemDesk.Application"
@@ -333,26 +375,30 @@ def start_systemdesk(
                 "Please close any open dialogs in SystemDesk and try again."
             )
             error_type = "transient"
+            error_code = ErrorCode.BLOCKED_BY_DIALOG
         elif "class not registered" in exc_str.lower() or "invalid class string" in exc_str.lower():
             message = (
                 f"SystemDesk is not installed or the ProgID '{prog_id}' is not registered. "
                 "Verify the SystemDesk installation."
             )
             error_type = "permanent"
+            error_code = ErrorCode.PROGID_NOT_REGISTERED
         elif "access" in exc_str.lower() or "permission" in exc_str.lower():
             message = (
                 "Access denied when connecting to SystemDesk. "
                 "Try running the MCP server with elevated privileges."
             )
             error_type = "permanent"
+            error_code = ErrorCode.ACCESS_DENIED
         else:
             message = (
                 "Failed to start SystemDesk. "
                 "Ensure SystemDesk is installed and no blocking dialog is open."
             )
             error_type = "transient"
+            error_code = ErrorCode.START_FAILED
 
-        return _error(message, error_type=error_type, details=exc_str)
+        return _error(message, error_type=error_type, error_code=error_code, details=exc_str)
 
 
 @mcp.tool(
@@ -376,10 +422,10 @@ def close_systemdesk(params: CloseSystemDeskInput) -> dict[str, Any]:
     Precondition: start_systemdesk must be called first.
     Returns a confirmation message on success.
 
-    Failure codes (error_type / condition):
-    - permanent / SystemDesk not running (start_systemdesk not called)
-    - transient / failed to save project before closing
-    - transient / Quit call failed (returns immediately)
+    Failure codes (error_type / error_code: condition):
+    - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
+    - transient / PROJECT_SAVE_FAILED: failed to save project before closing
+    - transient / QUIT_FAILED: Quit call failed (returns immediately)
     """
     global _application  # pylint: disable=global-statement
     try:
@@ -394,6 +440,7 @@ def close_systemdesk(params: CloseSystemDeskInput) -> dict[str, Any]:
                 return _error(
                     "Failed to save project before closing SystemDesk.",
                     error_type="transient",
+                    error_code=ErrorCode.PROJECT_SAVE_FAILED,
                     details=str(exc),
                 )
 
@@ -402,11 +449,12 @@ def close_systemdesk(params: CloseSystemDeskInput) -> dict[str, Any]:
         return _ok({"message": "SystemDesk closed successfully."})
 
     except _PermanentError as exc:
-        return _error(str(exc), error_type="permanent")
+        return _error(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return _error(
             "Failed to close SystemDesk.",
             error_type="transient",
+            error_code=ErrorCode.QUIT_FAILED,
             details=str(exc),
         )
 
@@ -508,9 +556,9 @@ def create_project(params: CreateProjectInput) -> dict[str, Any]:
     Precondition: start_systemdesk must be called first.
     Returns project_name and project_file path on success.
 
-    Failure codes (error_type / condition):
-    - permanent / SystemDesk not running (start_systemdesk not called)
-    - transient / project creation or save failed
+    Failure codes (error_type / error_code: condition):
+    - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
+    - transient / PROJECT_CREATION_FAILED: project creation or save failed
     """
     try:
         app = _get_app()
@@ -530,11 +578,12 @@ def create_project(params: CreateProjectInput) -> dict[str, Any]:
         })
 
     except _PermanentError as exc:
-        return _error(str(exc), error_type="permanent")
+        return _error(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return _error(
             f"Failed to create project '{params.project_name}'.",
             error_type="transient",
+            error_code=ErrorCode.PROJECT_CREATION_FAILED,
             details=str(exc),
         )
 
@@ -560,9 +609,9 @@ def close_project(params: CloseProjectInput) -> dict[str, Any]:
     Precondition: start_systemdesk must be called first.
     Returns project_name and saved flag on success.
 
-    Failure codes (error_type / condition):
-    - permanent / SystemDesk not running (start_systemdesk not called)
-    - transient / close or save call failed
+    Failure codes (error_type / error_code: condition):
+    - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
+    - transient / PROJECT_CLOSE_FAILED: close or save call failed
     """
     try:
         app = _get_app()
@@ -585,11 +634,12 @@ def close_project(params: CloseProjectInput) -> dict[str, Any]:
         })
 
     except _PermanentError as exc:
-        return _error(str(exc), error_type="permanent")
+        return _error(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return _error(
             "Failed to close the project.",
             error_type="transient",
+            error_code=ErrorCode.PROJECT_CLOSE_FAILED,
             details=str(exc),
         )
 
@@ -621,13 +671,14 @@ def import_autosar_file(params: ImportAutosarFileInput) -> dict[str, Any]:
     file_path must point to an existing .arxml file.
     Returns imported_file path and a confirmation message on success.
 
-    Failure codes (error_type / condition):
-    - permanent / SystemDesk not running (start_systemdesk not called)
-    - permanent / file not found
-    - permanent / unsupported file extension (non-.arxml)
-    - permanent / no project currently open
-    - transient / import timed out
-    - transient / import call failed
+    Failure codes (error_type / error_code: condition):
+    - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
+    - permanent / FILE_NOT_FOUND: file not found
+    - permanent / UNSUPPORTED_FILE_EXTENSION: non-.arxml file
+    - permanent / NO_PROJECT_OPEN: no project currently open
+    - permanent / IMPORT_REJECTED: SystemDesk rejected the file content (see details)
+    - transient / TIMEOUT: import timed out
+    - transient / IMPORT_FAILED: import call failed
     """
     try:
         app = _get_app()
@@ -635,18 +686,21 @@ def import_autosar_file(params: ImportAutosarFileInput) -> dict[str, Any]:
         if not os.path.isfile(params.file_path):
             raise _PermanentError(
                 f"File not found: '{params.file_path}'. "
-                "Provide an absolute path to an existing .arxml file.")
+                "Provide an absolute path to an existing .arxml file.",
+                error_code=ErrorCode.FILE_NOT_FOUND)
 
         if not params.file_path.lower().endswith(".arxml"): # pylint: disable=no-member
             raise _PermanentError(
                 f"Unsupported file extension for '{params.file_path}'. "
-                "Only .arxml files are supported.")
+                "Only .arxml files are supported.",
+                error_code=ErrorCode.UNSUPPORTED_FILE_EXTENSION)
 
         active_project = app.ActiveProject
         if active_project is None:
             raise _PermanentError(
                 "No project is currently open. "
-                "Call create_project or open a project first.")
+                "Call create_project or open a project first.",
+                error_code=ErrorCode.NO_PROJECT_OPEN)
 
         import_export_file = active_project.ImportExportFiles.Add(params.file_path)
         import_export_file.AddNewElementsToConfiguration = True
@@ -664,6 +718,7 @@ def import_autosar_file(params: ImportAutosarFileInput) -> dict[str, Any]:
             return _error(
                 f"Failed to import AUTOSAR file '{params.file_path}'.",
                 error_type="permanent",
+                error_code=ErrorCode.IMPORT_REJECTED,
                 details=_get_import_autosar_file_error_details(),
             )
 
@@ -676,11 +731,12 @@ def import_autosar_file(params: ImportAutosarFileInput) -> dict[str, Any]:
         })
 
     except _PermanentError as exc:
-        return _error(str(exc), error_type="permanent")
+        return _error(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return _error(
             f"Failed to import AUTOSAR file '{params.file_path}'.",
             error_type="transient",
+            error_code=ErrorCode.IMPORT_FAILED,
             details=str(exc),
         )
 
@@ -720,18 +776,20 @@ def validate_autosar(params: ValidateAutosarInput) -> dict[str, Any]:
     Preconditions: start_systemdesk must be called first; a project must be open.
     Returns error_count, warning_count, total_count, and a report (markdown or list of messages).
 
-    Failure codes (error_type / condition):
-    - permanent / SystemDesk not running (start_systemdesk not called)
-    - permanent / no project currently open
-    - transient / validation timed out
-    - transient / validation call failed
+    Failure codes (error_type / error_code: condition):
+    - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
+    - permanent / NO_PROJECT_OPEN: no project currently open
+    - transient / TIMEOUT: validation timed out
+    - transient / VALIDATION_FAILED: validation call failed
     """
     try:
         app = _get_app()
 
         active_project = app.ActiveProject
         if active_project is None:
-            raise _PermanentError("No project is currently open. Call create_project or open a project first.")
+            raise _PermanentError(
+                "No project is currently open. Call create_project or open a project first.",
+                error_code=ErrorCode.NO_PROJECT_OPEN)
 
         # Validation runs on the dedicated COM apartment thread; the timeout
         # is enforced by the @_on_com_thread decorator.
@@ -788,11 +846,12 @@ def validate_autosar(params: ValidateAutosarInput) -> dict[str, Any]:
         })
 
     except _PermanentError as exc:
-        return _error(str(exc), error_type="permanent")
+        return _error(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return _error(
             "Failed to validate the project.",
             error_type="transient",
+            error_code=ErrorCode.VALIDATION_FAILED,
             details=str(exc),
         )
 
