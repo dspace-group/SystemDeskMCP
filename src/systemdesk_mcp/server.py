@@ -20,7 +20,7 @@ from typing import Any, Iterable, Optional
 
 import pythoncom
 from fastmcp import FastMCP
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 __version__ = "0.1.0"
 
@@ -62,7 +62,6 @@ class ErrorCode(str, Enum):
     PROJECT_CREATION_FAILED = "PROJECT_CREATION_FAILED"
     PROJECT_CLOSE_FAILED = "PROJECT_CLOSE_FAILED"
     FILE_NOT_FOUND = "FILE_NOT_FOUND"
-    UNSUPPORTED_FILE_EXTENSION = "UNSUPPORTED_FILE_EXTENSION"
     NO_PROJECT_OPEN = "NO_PROJECT_OPEN"
     IMPORT_REJECTED = "IMPORT_REJECTED"
     IMPORT_FAILED = "IMPORT_FAILED"
@@ -214,9 +213,16 @@ def _logged(fn):
 # Input models
 # ---------------------------------------------------------------------------
 
+_ARXML_PATTERN = r"\.[aA][rR][xX][mM][lL]$"
+# Excludes path separators, Windows-reserved characters and control characters.
+_FILE_NAME_PATTERN = r'^[^<>:"/\\|?*\x00-\x1F]+$'
+_MAX_TIMEOUT_SECONDS = 3600
+
 
 class CloseSystemDeskInput(BaseModel):
     """Input schema for close_systemdesk."""
+
+    model_config = ConfigDict(extra="forbid")
 
     save_project: bool = Field(
         default=True,
@@ -230,15 +236,21 @@ class CloseSystemDeskInput(BaseModel):
 class CreateProjectInput(BaseModel):
     """Input schema for create_project."""
 
+    model_config = ConfigDict(extra="forbid")
+
     project_path: str = Field(
+        min_length=1,
         description=(
             "Absolute path to the directory where the project file will be created. "
             "Example: 'C:\\Projects\\MyECU'"
         )
     )
     project_name: str = Field(
+        min_length=1,
+        pattern=_FILE_NAME_PATTERN,
         description=(
             "Name of the new SystemDesk project (without file extension). "
+            "Must not contain path separators or any of <>:\"/\\|?*. "
             "Example: 'MyECU_Architecture'"
         )
     )
@@ -246,6 +258,8 @@ class CreateProjectInput(BaseModel):
 
 class CloseProjectInput(BaseModel):
     """Input schema for close_project."""
+
+    model_config = ConfigDict(extra="forbid")
 
     save_project: bool = Field(
         default=True,
@@ -259,7 +273,11 @@ class CloseProjectInput(BaseModel):
 class ImportAutosarFileInput(BaseModel):
     """Input schema for import_autosar_file."""
 
+    model_config = ConfigDict(extra="forbid")
+
     file_path: str = Field(
+        min_length=1,
+        pattern=_ARXML_PATTERN,
         description=(
             "Absolute local path to the AUTOSAR file (.arxml) to import. "
             "Example: 'C:\\Projects\\MyECU\\SoftwareComponent.arxml'"
@@ -267,6 +285,8 @@ class ImportAutosarFileInput(BaseModel):
     )
     timeout: int = Field(
         default=60,
+        ge=1,
+        le=_MAX_TIMEOUT_SECONDS,
         description="Maximum number of seconds to wait for the import to complete. Example: 60",
     )
 
@@ -281,6 +301,8 @@ class ValidateOutputFormat(str, Enum):
 class ValidateAutosarInput(BaseModel):
     """Input schema for validate_autosar."""
 
+    model_config = ConfigDict(extra="forbid")
+
     output_format: ValidateOutputFormat = Field(
         default=ValidateOutputFormat.MARKDOWN,
         description=(
@@ -291,6 +313,8 @@ class ValidateAutosarInput(BaseModel):
     )
     timeout: int = Field(
         default=120,
+        ge=1,
+        le=_MAX_TIMEOUT_SECONDS,
         description="Maximum number of seconds to wait for validation to complete. Example: 120",
     )
 
@@ -674,7 +698,6 @@ def import_autosar_file(params: ImportAutosarFileInput) -> dict[str, Any]:
     Failure codes (error_type / error_code: condition):
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
     - permanent / FILE_NOT_FOUND: file not found
-    - permanent / UNSUPPORTED_FILE_EXTENSION: non-.arxml file
     - permanent / NO_PROJECT_OPEN: no project currently open
     - permanent / IMPORT_REJECTED: SystemDesk rejected the file content (see details)
     - transient / TIMEOUT: import timed out
@@ -688,12 +711,6 @@ def import_autosar_file(params: ImportAutosarFileInput) -> dict[str, Any]:
                 f"File not found: '{params.file_path}'. "
                 "Provide an absolute path to an existing .arxml file.",
                 error_code=ErrorCode.FILE_NOT_FOUND)
-
-        if not params.file_path.lower().endswith(".arxml"): # pylint: disable=no-member
-            raise _PermanentError(
-                f"Unsupported file extension for '{params.file_path}'. "
-                "Only .arxml files are supported.",
-                error_code=ErrorCode.UNSUPPORTED_FILE_EXTENSION)
 
         active_project = app.ActiveProject
         if active_project is None:
