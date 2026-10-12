@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastmcp.tools import FunctionTool
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 import systemdesk_mcp.server as srv
 
 
@@ -166,18 +166,28 @@ def test_close_project_without_save(app):
     active_project.Close.assert_called_once_with(False)
 
 
-def test_import_autosar_wrong_extension(tmp_path):
-    # arrange
-    xml_file = tmp_path / "file.xml"
-    xml_file.write_text("<data/>")
+def test_import_autosar_wrong_extension_rejected_by_schema(tmp_path):
+    with pytest.raises(ValidationError):
+        srv.ImportAutosarFileInput(file_path=str(tmp_path / "file.xml"))
 
-    # act
-    result = srv.import_autosar_file(srv.ImportAutosarFileInput(file_path=str(xml_file)))
 
-    # assert
-    assert result["status"] == "error"
-    assert result["error_code"] == "UNSUPPORTED_FILE_EXTENSION"
-    assert "arxml" in result["message"].lower()
+@pytest.mark.parametrize("timeout", [0, -1, srv._MAX_TIMEOUT_SECONDS + 1])
+def test_timeout_out_of_range_rejected_by_schema(timeout):
+    with pytest.raises(ValidationError):
+        srv.ImportAutosarFileInput(file_path="C:\\a.arxml", timeout=timeout)
+    with pytest.raises(ValidationError):
+        srv.ValidateAutosarInput(timeout=timeout)
+
+
+@pytest.mark.parametrize("project_name", ["", "a/b", "a\\b", "a:b", "a*b", "a?b"])
+def test_create_project_invalid_name_rejected_by_schema(project_name):
+    with pytest.raises(ValidationError):
+        srv.CreateProjectInput(project_path="C:\\Projects", project_name=project_name)
+
+
+def test_unknown_argument_rejected_by_schema():
+    with pytest.raises(ValidationError):
+        srv.CloseSystemDeskInput(save_projct=False)
 
 
 def test_import_autosar_file_not_found():
@@ -465,6 +475,9 @@ async def test_tools_with_parameters_use_single_params_model():
         annotation = typing.get_type_hints(tool.fn)["params"]
         assert inspect.isclass(annotation) and issubclass(annotation, BaseModel), (
             f"Tool '{tool.name}': 'params' must be a Pydantic model."
+        )
+        assert annotation.model_config.get("extra") == "forbid", (
+            f"Tool '{tool.name}': 'params' model must forbid extra fields."
         )
         assert sig.parameters["params"].default is inspect.Parameter.empty, (
             f"Tool '{tool.name}': 'params' must not have a default."
