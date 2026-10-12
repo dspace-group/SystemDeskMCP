@@ -19,7 +19,7 @@ Use the SystemDesk MCP Server to perform an end-to-end smoke test, ensuring that
 
 1. Always clean up any created directories or files after the test execution, regardless of the test results.
 2. SystemDesk.exe should not be running before the test starts.
-3. Use the tools provided by the SystemDesk MCP server to validate the file `tests\smoke-test.arxml`, then close SystemDesk.
+3. Use the tools provided by the SystemDesk MCP server to validate the file `tests\smoke-test.arxml`.
    The following results are expected from the validation:
      - 1 Error
        - `/SWA/B/InternalBehavior/DataReceivedEvent` is missing the "DataIref".
@@ -29,7 +29,8 @@ Use the SystemDesk MCP Server to perform an end-to-end smoke test, ensuring that
 4. After validation, use the tools provided by the SystemDesk MCP server to get the status of SystemDesk and whether a project is opened. The expected results are:
    - SystemDesk is running.
    - A project is opened.
-5. SystemDesk.exe should not be running after the test finishes.
+5. Close SystemDesk.
+6. SystemDesk.exe should not be running after the test finishes. Allow a grace period for it to close properly.
 
 Fail the test if any of the expected results are not met, or if SystemDesk.exe is running at the wrong times.
 
