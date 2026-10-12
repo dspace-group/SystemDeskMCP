@@ -52,11 +52,11 @@ uv sync
 Recommended flow:
 
 1. `start_systemdesk()`
-2. `create_project(project_path, project_name)` or open an existing project
-3. `import_autosar_file(file_path)`
-4. `validate_autosar(output_format="markdown" | "json")`
-5. `close_project(save_project=True)`
-6. `close_systemdesk(save_project=True)`
+2. `create_project(params={project_path, project_name})` or open an existing project
+3. `import_autosar_file(params={file_path, timeout=60})`
+4. `validate_autosar(params={output_format="markdown" | "json", timeout=120})`
+5. `close_project(params={save_project=True})`
+6. `close_systemdesk(params={save_project=True})`
 
 Important:
 
@@ -90,26 +90,58 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 
 - `start_systemdesk()`
 - `get_systemdesk_status()`
-- `close_systemdesk(save_project=True)`
-- `create_project(project_path, project_name)`
-- `close_project(save_project=True)`
-- `import_autosar_file(file_path)`
-- `validate_autosar(output_format="markdown" | "json")`
+- `close_systemdesk(params={save_project=True})`
+- `create_project(params={project_path, project_name})`
+- `close_project(params={save_project=True})`
+- `import_autosar_file(params={file_path, timeout=60})`
+- `validate_autosar(params={output_format="markdown" | "json", timeout=120})`
 
 ## Extending the Server
 
-Add a new tool by defining a function decorated with `@mcp.tool()` in `src/systemdesk_mcp/server.py`:
+Add a new tool in `src/systemdesk_mcp/server.py`. If the tool has input parameters, define a Pydantic model for them and use it as the tool's only parameter, named `params`. Field types, defaults, and descriptions are defined only in the model. Tools without inputs take no parameters.
 
 ```python
-@mcp.tool()
-def my_new_tool(param: str) -> str:
+class MyNewToolInput(BaseModel):
+    """Input schema for my_new_tool."""
+
+    element_path: str = Field(
+        description="AUTOSAR path of the element. Example: '/Package/MyElement'",
+    )
+    timeout: int = Field(
+        default=60,
+        description="Maximum number of seconds to wait. Example: 60",
+    )
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    output_schema=None,
+)
+@_logged
+@_on_com_thread
+def my_new_tool(params: MyNewToolInput) -> dict[str, Any]:
     """Description shown to the MCP client."""
-    app = _get_app()  # retrieve the active COM connection
-    # ... call app.* COM methods ...
-    return "result"
+    try:
+        app = _get_app()  # active COM connection
+        # ... call app.* COM methods using params.element_path ...
+        return _ok({"message": "Done."})
+    except _PermanentError as exc:
+        return _error(str(exc), error_type="permanent")
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        return _error("my_new_tool failed.", error_type="transient", details=str(exc))
 ```
 
-Use `_get_app()` to access the live SystemDesk COM object.
+Notes:
+
+- Use `_get_app()` to access the live SystemDesk COM object.
+- `@_on_com_thread` runs the tool on the dedicated COM thread. If the model has a `timeout` field, it is used as the call timeout.
+- `@_logged` writes a structured log entry for every call.
+- Return `_ok(...)` or `_error(...)` so that every tool has the same `status` / `error_type` response format.
 
 ## Troubleshooting
 
