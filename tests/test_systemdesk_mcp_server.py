@@ -171,6 +171,78 @@ def test_import_autosar_wrong_extension_rejected_by_schema(tmp_path):
         srv.ImportAutosarFileInput(file_path=str(tmp_path / "file.xml"))
 
 
+_VALID_ABSOLUTE_DIRS = [
+    "C:\\",
+    "C:/",
+    "c:\\Projects",
+    "C:\\Projects\\My ECU",
+    "C:/Projects/MyECU",
+    "C:\\Projects/Mixed\\Separators",
+    "\\\\server\\share",
+    "\\\\server\\share\\Projects",
+    "//server/share/Projects",
+    "\\\\192.168.0.1\\share\\Projects",
+    "\\\\?\\C:\\Very\\Long\\Path",
+]
+
+_INVALID_ABSOLUTE_DIRS = [
+    "Projects",
+    "Projects\\MyECU",
+    ".\\Projects",
+    "..\\Projects",
+    "\\Projects",
+    "/Projects",
+    "C:",
+    "C:Projects",
+    "1:\\Projects",
+    "\\\\server",
+    "\\\\server\\",
+    "\\\\\\share",
+]
+
+
+@pytest.mark.parametrize("project_path", _VALID_ABSOLUTE_DIRS)
+def test_create_project_absolute_path_accepted_by_schema(project_path):
+    srv.CreateProjectInput(project_path=project_path, project_name="MyECU")
+
+
+@pytest.mark.parametrize("project_path", _INVALID_ABSOLUTE_DIRS)
+def test_create_project_non_absolute_path_rejected_by_schema(project_path):
+    with pytest.raises(ValidationError):
+        srv.CreateProjectInput(project_path=project_path, project_name="MyECU")
+
+
+@pytest.mark.parametrize(
+    "file_path",
+    [d.rstrip("\\/") + "\\file.arxml" for d in _VALID_ABSOLUTE_DIRS]
+    + ["C:\\Projects\\file.ARXML", "C:\\Projects\\file.ArXmL", "C:\\Projects\\my.file.arxml"],
+)
+def test_import_autosar_absolute_path_accepted_by_schema(file_path):
+    srv.ImportAutosarFileInput(file_path=file_path)
+
+
+@pytest.mark.parametrize(
+    "file_path",
+    [
+        "file.arxml",
+        "Projects\\file.arxml",
+        ".\\file.arxml",
+        "..\\Projects\\file.arxml",
+        "\\Projects\\file.arxml",
+        "/Projects/file.arxml",
+        "C:file.arxml",
+        "1:\\Projects\\file.arxml",
+        "\\\\\\share\\file.arxml",
+        "C:\\Projects\\file.xml",
+        "C:\\Projects\\file.arxml.bak",
+        "C:\\Projects\\filearxml",
+    ],
+)
+def test_import_autosar_invalid_path_rejected_by_schema(file_path):
+    with pytest.raises(ValidationError):
+        srv.ImportAutosarFileInput(file_path=file_path)
+
+
 @pytest.mark.parametrize("timeout", [0, -1, srv._MAX_TIMEOUT_SECONDS + 1])
 def test_timeout_out_of_range_rejected_by_schema(timeout):
     with pytest.raises(ValidationError):

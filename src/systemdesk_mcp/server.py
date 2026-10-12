@@ -213,7 +213,10 @@ def _logged(fn):
 # Input models
 # ---------------------------------------------------------------------------
 
-_ARXML_PATTERN = r"\.[aA][rR][xX][mM][lL]$"
+# Drive-letter path (C:\ or C:/) or UNC network path (\\server\share).
+_ABSOLUTE_PATH_PREFIX = r"^(?:[a-zA-Z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+)"
+_ABSOLUTE_PATH_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*$"
+_ARXML_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*\.[aA][rR][xX][mM][lL]$"
 # Excludes path separators, Windows-reserved characters and control characters.
 _FILE_NAME_PATTERN = r'^[^<>:"/\\|?*\x00-\x1F]+$'
 _MAX_TIMEOUT_SECONDS = 3600
@@ -240,8 +243,9 @@ class CreateProjectInput(BaseModel):
 
     project_path: str = Field(
         min_length=1,
+        pattern=_ABSOLUTE_PATH_PATTERN,
         description=(
-            "Absolute path to the directory where the project file will be created. "
+            "Absolute local or UNC path to the directory where the project file will be created. "
             "Example: 'C:\\Projects\\MyECU'"
         )
     )
@@ -279,7 +283,7 @@ class ImportAutosarFileInput(BaseModel):
         min_length=1,
         pattern=_ARXML_PATTERN,
         description=(
-            "Absolute local path to the AUTOSAR file (.arxml) to import. "
+            "Absolute local or UNC path to the AUTOSAR file (.arxml) to import. "
             "Example: 'C:\\Projects\\MyECU\\SoftwareComponent.arxml'"
         )
     )
