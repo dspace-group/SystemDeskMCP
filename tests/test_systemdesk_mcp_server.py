@@ -5,10 +5,14 @@ COM is mocked at the _application singleton level — no SystemDesk installation
 """
 # pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
+import inspect
 import os
+import typing
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.tools import FunctionTool
+from pydantic import BaseModel
 import systemdesk_mcp.server as srv
 
 
@@ -45,7 +49,7 @@ def test_close_systemdesk_not_started():
     srv._application = None
 
     # act
-    result = srv.close_systemdesk()
+    result = srv.close_systemdesk(srv.CloseSystemDeskInput())
 
     # assert
     assert result["status"] == "error"
@@ -98,7 +102,7 @@ def test_get_systemdesk_status_running_with_project(app):
 
 def test_close_systemdesk_without_save(app):
     # act
-    result = srv.close_systemdesk(save_project=False)
+    result = srv.close_systemdesk(srv.CloseSystemDeskInput(save_project=False))
 
     # assert
     assert result["status"] == "success"
@@ -114,7 +118,7 @@ def test_close_systemdesk_with_save(app):
     app.ActiveProject = active_project
 
     # act
-    result = srv.close_systemdesk(save_project=True)
+    result = srv.close_systemdesk(srv.CloseSystemDeskInput(save_project=True))
 
     # assert
     assert result["status"] == "success"
@@ -131,7 +135,7 @@ def test_close_project_with_save(app):
     app.ActiveProject = active_project
 
     # act
-    result = srv.close_project(save_project=True)
+    result = srv.close_project(srv.CloseProjectInput(save_project=True))
 
     # assert
     assert result["status"] == "success"
@@ -149,7 +153,7 @@ def test_close_project_without_save(app):
     app.ActiveProject = active_project
 
     # act
-    result = srv.close_project(save_project=False)
+    result = srv.close_project(srv.CloseProjectInput(save_project=False))
 
     # assert
     assert result["status"] == "success"
@@ -166,7 +170,7 @@ def test_import_autosar_wrong_extension(tmp_path):
     xml_file.write_text("<data/>")
 
     # act
-    result = srv.import_autosar_file(str(xml_file))
+    result = srv.import_autosar_file(srv.ImportAutosarFileInput(file_path=str(xml_file)))
 
     # assert
     assert result["status"] == "error"
@@ -175,7 +179,9 @@ def test_import_autosar_wrong_extension(tmp_path):
 
 def test_import_autosar_file_not_found():
     # act
-    result = srv.import_autosar_file("C:\\nonexistent\\file.arxml")
+    result = srv.import_autosar_file(
+        srv.ImportAutosarFileInput(file_path="C:\\nonexistent\\file.arxml")
+    )
 
     # assert
     assert result["status"] == "error"
@@ -193,7 +199,7 @@ def test_import_autosar_file_success(app, tmp_path):
     app.ActiveProject = active_project
 
     # act
-    result = srv.import_autosar_file(str(arxml_file))
+    result = srv.import_autosar_file(srv.ImportAutosarFileInput(file_path=str(arxml_file)))
 
     # assert
     assert result["status"] == "success"
@@ -231,7 +237,7 @@ def test_import_autosar_file_schema_error(app, tmp_path):
     msg.Children.Elements[1].Children.Elements = []
 
     # act
-    result = srv.import_autosar_file(str(arxml_file))
+    result = srv.import_autosar_file(srv.ImportAutosarFileInput(file_path=str(arxml_file)))
 
     # assert
     assert result["status"] == "error"
@@ -249,7 +255,7 @@ def test_import_autosar_no_project_open(app, tmp_path):
     app.ActiveProject = None
 
     # act
-    result = srv.import_autosar_file(str(arxml_file))
+    result = srv.import_autosar_file(srv.ImportAutosarFileInput(file_path=str(arxml_file)))
 
     # assert
     assert result["status"] == "error"
@@ -266,7 +272,9 @@ def test_create_project_success(app, tmp_path):
     app.CreateProject.return_value = created_project
 
     # act
-    result = srv.create_project(str(project_dir), project_name)
+    result = srv.create_project(
+        srv.CreateProjectInput(project_path=str(project_dir), project_name=project_name)
+    )
 
     # assert
     assert result["status"] == "success"
@@ -289,7 +297,7 @@ def test_validate_autosar_with_error(app):
     app.ActiveProject.Validate.ResultStructure.RuleResults = [rule_result]
 
     # act
-    result = srv.validate_autosar()
+    result = srv.validate_autosar(srv.ValidateAutosarInput())
 
     # assert
     assert result["status"] == "success"
@@ -312,7 +320,7 @@ def test_validate_autosar_with_warning(app):
     app.ActiveProject.Validate.ResultStructure.RuleResults = [rule_result]
 
     # act
-    result = srv.validate_autosar()
+    result = srv.validate_autosar(srv.ValidateAutosarInput())
 
     # assert
     assert result["status"] == "success"
@@ -345,7 +353,7 @@ def test_validate_autosar_with_child_messages_markdown(app):
     app.ActiveProject.Validate.ResultStructure.RuleResults = [rule_result]
 
     # act
-    result = srv.validate_autosar()
+    result = srv.validate_autosar(srv.ValidateAutosarInput())
 
     # assert
     assert result["status"] == "success"
@@ -374,7 +382,9 @@ def test_validate_autosar_with_child_messages_json(app):
     app.ActiveProject.Validate.ResultStructure.RuleResults = [rule_result]
 
     # act
-    result = srv.validate_autosar(output_format=srv.ValidateOutputFormat.JSON)
+    result = srv.validate_autosar(
+        srv.ValidateAutosarInput(output_format=srv.ValidateOutputFormat.JSON)
+    )
 
     # assert
     assert result["status"] == "success"
@@ -406,7 +416,7 @@ def test_validate_autosar_with_no_results(app):
     app.ActiveProject.Validate.ResultStructure.RuleResults = []
 
     # act
-    result = srv.validate_autosar()
+    result = srv.validate_autosar(srv.ValidateAutosarInput())
 
     # assert
     assert result["status"] == "success"
@@ -421,12 +431,43 @@ def test_validate_autosar_no_project_open(app):
     app.ActiveProject = None
 
     # act
-    result = srv.validate_autosar()
+    result = srv.validate_autosar(srv.ValidateAutosarInput())
 
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
     assert "no project is currently open" in result["message"].lower()
+
+
+@pytest.mark.anyio
+async def test_tools_with_parameters_use_single_params_model():
+    tools = await srv.mcp.list_tools()
+    assert tools
+
+    for tool in tools:
+        assert isinstance(tool, FunctionTool), (
+            f"Tool '{tool.name}' is not a FunctionTool and cannot be inspected."
+        )
+        sig = inspect.signature(tool.fn)
+        if not sig.parameters:
+            continue
+
+        assert list(sig.parameters) == ["params"], (
+            f"Tool '{tool.name}' must have a single parameter named 'params'."
+        )
+        annotation = typing.get_type_hints(tool.fn)["params"]
+        assert inspect.isclass(annotation) and issubclass(annotation, BaseModel), (
+            f"Tool '{tool.name}': 'params' must be a Pydantic model."
+        )
+        assert sig.parameters["params"].default is inspect.Parameter.empty, (
+            f"Tool '{tool.name}': 'params' must not have a default."
+        )
+        assert set(tool.parameters["properties"]) == {"params"}, (
+            f"Tool '{tool.name}': schema must only expose 'params'."
+        )
+        assert "params" in tool.parameters.get("required", []), (
+            f"Tool '{tool.name}': 'params' must be required in the schema."
+        )
 
 
 def test_version_is_semver():

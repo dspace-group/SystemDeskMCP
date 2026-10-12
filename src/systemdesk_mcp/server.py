@@ -16,7 +16,7 @@ import logging
 import time
 import uuid
 from enum import Enum
-from typing import Annotated, Any, Iterable, Optional
+from typing import Any, Iterable, Optional
 
 import pythoncom
 from fastmcp import FastMCP
@@ -115,8 +115,7 @@ def _on_com_thread(fn):
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         bound = sig.bind(*args, **kwargs)
-        bound.apply_defaults()
-        timeout = bound.arguments.get("timeout")
+        timeout = getattr(bound.arguments.get("params"), "timeout", None)
         future = _com_executor.submit(fn, *args, **kwargs)
         try:
             return future.result(timeout=timeout)
@@ -135,13 +134,19 @@ _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
+def _json_default(obj: Any) -> Any:
+    if isinstance(obj, BaseModel):
+        return obj.model_dump(mode="json")
+    return str(obj)
+
+
 def _logged(fn):
     """Emit a structured JSON log entry for every tool invocation."""
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         correlation_id = str(uuid.uuid4())
         input_hash = hashlib.sha256(
-            json.dumps(kwargs, sort_keys=True, default=str).encode()
+            json.dumps(kwargs, sort_keys=True, default=_json_default).encode()
         ).hexdigest()[:16]
         t0 = time.monotonic()
         result = fn(*args, **kwargs)
@@ -216,7 +221,7 @@ class ImportAutosarFileInput(BaseModel):
 
     file_path: str = Field(
         description=(
-            "Absolute path to the AUTOSAR file (.arxml) to import. "
+            "Absolute local path to the AUTOSAR file (.arxml) to import. "
             "Example: 'C:\\Projects\\MyECU\\SoftwareComponent.arxml'"
         )
     )
@@ -361,11 +366,7 @@ def start_systemdesk(
 )
 @_logged
 @_on_com_thread
-def close_systemdesk(
-    save_project: Annotated[bool, Field(
-        description="If True, the currently open project is saved before SystemDesk is closed. Example: True",
-    )] = True,
-) -> dict[str, Any]:
+def close_systemdesk(params: CloseSystemDeskInput) -> dict[str, Any]:
     """
     Close SystemDesk and release the COM connection.
 
@@ -380,7 +381,6 @@ def close_systemdesk(
     - transient / failed to save project before closing
     - transient / Quit call failed (returns immediately)
     """
-    params = CloseSystemDeskInput(save_project=save_project)
     global _application  # pylint: disable=global-statement
     try:
         app = _get_app()
@@ -495,14 +495,7 @@ def get_systemdesk_status() -> dict[str, Any]:
 )
 @_logged
 @_on_com_thread
-def create_project(
-    project_path: Annotated[str, Field(
-        description="Absolute path to the directory where the project file will be created. Example: 'C:\\Projects\\MyECU'",
-    )],
-    project_name: Annotated[str, Field(
-        description="Name of the new SystemDesk project (without file extension). Example: 'MyECU_Architecture'",
-    )],
-) -> dict[str, Any]:
+def create_project(params: CreateProjectInput) -> dict[str, Any]:
     """
     Create a new SystemDesk project at the specified path.
 
@@ -519,7 +512,6 @@ def create_project(
     - permanent / SystemDesk not running (start_systemdesk not called)
     - transient / project creation or save failed
     """
-    params = CreateProjectInput(project_path=project_path, project_name=project_name)
     try:
         app = _get_app()
 
@@ -558,11 +550,7 @@ def create_project(
 )
 @_logged
 @_on_com_thread
-def close_project(
-    save_project: Annotated[bool, Field(
-        description="If True, saves the project before closing it. Example: True",
-    )] = True,
-) -> dict[str, Any]:
+def close_project(params: CloseProjectInput) -> dict[str, Any]:
     """
     Close the currently open SystemDesk project.
 
@@ -576,7 +564,6 @@ def close_project(
     - permanent / SystemDesk not running (start_systemdesk not called)
     - transient / close or save call failed
     """
-    params = CloseProjectInput(save_project=save_project)
     try:
         app = _get_app()
         active_project = app.ActiveProject
@@ -623,14 +610,7 @@ def close_project(
 )
 @_logged
 @_on_com_thread
-def import_autosar_file(
-    file_path: Annotated[str, Field(
-        description="Absolute local path to the AUTOSAR file (.arxml) to import. Example: 'C:\\Projects\\MyECU\\SoftwareComponent.arxml'",
-    )],
-    timeout: Annotated[int, Field(
-        description="Maximum number of seconds to wait for the import to complete. Example: 60",
-    )] = 60,
-) -> dict[str, Any]:
+def import_autosar_file(params: ImportAutosarFileInput) -> dict[str, Any]:
     """
     Import an AUTOSAR file (.arxml) into the currently open SystemDesk project.
 
@@ -649,7 +629,6 @@ def import_autosar_file(
     - transient / import timed out
     - transient / import call failed
     """
-    params = ImportAutosarFileInput(file_path=file_path, timeout=timeout)
     try:
         app = _get_app()
 
@@ -732,14 +711,7 @@ def _dump_message(message, indent=0) -> Iterable[str]:
 )
 @_logged
 @_on_com_thread
-def validate_autosar(
-    output_format: Annotated[ValidateOutputFormat, Field(
-        description="Format for the validation result output. Accepted values: 'markdown', 'json'. Example: 'markdown'",
-    )] = ValidateOutputFormat.MARKDOWN,
-    timeout: Annotated[int, Field(
-        description="Maximum number of seconds to wait for validation to complete. Example: 120",
-    )] = 120,
-) -> dict[str, Any]:
+def validate_autosar(params: ValidateAutosarInput) -> dict[str, Any]:
     """
     Validate the currently open SystemDesk project against AUTOSAR design rules.
 
@@ -754,7 +726,6 @@ def validate_autosar(
     - transient / validation timed out
     - transient / validation call failed
     """
-    params = ValidateAutosarInput(output_format=output_format, timeout=timeout)
     try:
         app = _get_app()
 
