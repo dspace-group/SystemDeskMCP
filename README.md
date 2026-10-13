@@ -98,7 +98,7 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 
 ## Extending the Server
 
-Add a new tool in `src/systemdesk_mcp/server.py`. If the tool has input parameters, define a Pydantic model for them that inherits from `_StrictInput` and use it as the tool's only parameter, named `params`. Field types, defaults, and descriptions are defined only in the model. Tools without inputs take no parameters.
+Add a new tool in `src/systemdesk_mcp/server.py`. If the tool has input parameters, define a Pydantic model for them that inherits from `_StrictInput` and use it as the tool's only parameter, named `params`. Field types, defaults, constraints, and descriptions (with an `Example:`) are defined only in the model. Tools without inputs take no parameters.
 
 ```python
 class MyNewToolInput(_StrictInput):
@@ -109,6 +109,8 @@ class MyNewToolInput(_StrictInput):
     )
     timeout: int = Field(
         default=60,
+        ge=1,
+        le=_MAX_TIMEOUT_SECONDS,
         description="Maximum number of seconds to wait. Example: 60",
     )
 
@@ -143,11 +145,15 @@ def my_new_tool(params: MyNewToolInput) -> dict[str, Any]:
 
 Notes:
 
-- Use `_get_app()` to access the live SystemDesk COM object.
-- `@_on_com_thread` runs the tool on the dedicated COM thread. If the model has a `timeout` field, it is used as the call timeout.
+- Keep the decorators exactly in the order shown, with no others (checked by tests). Set all four annotations.
+- Use `_get_app()` to access the live SystemDesk COM object. Never touch COM objects outside the dedicated COM thread.
+- `@_on_com_thread` runs the tool on the dedicated COM thread. If the operation can block, add a `timeout` field as shown; it is used as the call timeout.
 - `@_logged` writes a structured log entry for every call.
-- Return `_ok(...)` or `_error(...)` so that every tool has the same `status` / `error_type` / `error_code` response format.
-- Use a stable UPPER_SNAKE_CASE `error_code` per failure condition: add it as a member of the `ErrorCode` enum (e.g. `MY_NEW_TOOL_FAILED = "MY_NEW_TOOL_FAILED"`), pass `ErrorCode.<MEMBER>` to `_error(...)` or `_PermanentError(message, error_code=...)`, and list it in the tool's "Failure codes" docstring section.
+- Validate file paths with the existing `_*_PATTERN` regexes; only absolute local or UNC paths are accepted.
+- Return `_ok(...)` or `_error(...)` so that every tool has the same `status` / `error_type` / `error_code` response format. Use `error_type="permanent"` (via `_PermanentError`) for non-retryable failures and `"transient"` for the generic `except Exception` fallback.
+- Use a stable UPPER_SNAKE_CASE `error_code` per failure condition: add it as a member of the `ErrorCode` enum (e.g. `MY_NEW_TOOL_FAILED = "MY_NEW_TOOL_FAILED"`), pass `ErrorCode.<MEMBER>` to `_error(...)` or `_PermanentError(message, error_code=...)`, and list it in the tool's "Failure codes" docstring section. Never rename or remove existing codes; clients depend on them.
+- Document in the docstring: purpose, preconditions, return fields, and a `Failure codes (error_type / error_code: condition):` section listing every code the tool can return.
+- Update [Usage (Tool Order)](#usage-tool-order), [Available MCP Tools](#available-mcp-tools), and, if relevant, the `instructions` string passed to `FastMCP(...)`.
 
 ## Troubleshooting
 
