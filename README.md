@@ -98,10 +98,10 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 
 ## Extending the Server
 
-Add a new tool in `src/systemdesk_mcp/server.py`. If the tool has input parameters, define a Pydantic model for them and use it as the tool's only parameter, named `params`. Field types, defaults, and descriptions are defined only in the model. Tools without inputs take no parameters.
+Add a new tool in `src/systemdesk_mcp/server.py`. If the tool has input parameters, define a Pydantic model for them that inherits from `_StrictInput` and use it as the tool's only parameter, named `params`. Field types, defaults, and descriptions are defined only in the model. Tools without inputs take no parameters.
 
 ```python
-class MyNewToolInput(BaseModel):
+class MyNewToolInput(_StrictInput):
     """Input schema for my_new_tool."""
 
     element_path: str = Field(

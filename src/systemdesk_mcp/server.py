@@ -222,10 +222,14 @@ _FILE_NAME_PATTERN = r'^[^<>:"/\\|?*\x00-\x1F]+$'
 _MAX_TIMEOUT_SECONDS = 3600
 
 
-class CloseSystemDeskInput(BaseModel):
-    """Input schema for close_systemdesk."""
+class _StrictInput(BaseModel):
+    """Base class for tool input models; rejects unknown properties."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class CloseSystemDeskInput(_StrictInput):
+    """Input schema for close_systemdesk."""
 
     save_project: bool = Field(
         default=True,
@@ -236,10 +240,8 @@ class CloseSystemDeskInput(BaseModel):
     )
 
 
-class CreateProjectInput(BaseModel):
+class CreateProjectInput(_StrictInput):
     """Input schema for create_project."""
-
-    model_config = ConfigDict(extra="forbid")
 
     project_path: str = Field(
         min_length=1,
@@ -260,10 +262,8 @@ class CreateProjectInput(BaseModel):
     )
 
 
-class CloseProjectInput(BaseModel):
+class CloseProjectInput(_StrictInput):
     """Input schema for close_project."""
-
-    model_config = ConfigDict(extra="forbid")
 
     save_project: bool = Field(
         default=True,
@@ -274,10 +274,8 @@ class CloseProjectInput(BaseModel):
     )
 
 
-class ImportAutosarFileInput(BaseModel):
+class ImportAutosarFileInput(_StrictInput):
     """Input schema for import_autosar_file."""
-
-    model_config = ConfigDict(extra="forbid")
 
     file_path: str = Field(
         min_length=1,
@@ -302,10 +300,8 @@ class ValidateOutputFormat(str, Enum):
     JSON = "json"
 
 
-class ValidateAutosarInput(BaseModel):
+class ValidateAutosarInput(_StrictInput):
     """Input schema for validate_autosar."""
-
-    model_config = ConfigDict(extra="forbid")
 
     output_format: ValidateOutputFormat = Field(
         default=ValidateOutputFormat.MARKDOWN,
