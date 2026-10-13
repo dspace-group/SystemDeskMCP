@@ -562,6 +562,32 @@ async def test_tools_with_parameters_use_single_params_model():
         )
 
 
+@pytest.mark.anyio
+async def test_tools_are_logged_and_on_com_thread():
+    # Every wrapper produced by a decorator shares that decorator's inner code object.
+    logged_code = srv._logged(lambda: None).__code__
+    com_thread_code = srv._on_com_thread(lambda: None).__code__
+
+    tools = await srv.mcp.list_tools()
+    assert tools
+
+    for tool in tools:
+        assert isinstance(tool, FunctionTool), (
+            f"Tool '{tool.name}' is not a FunctionTool and cannot be inspected."
+        )
+        outer = tool.fn
+        assert outer.__code__ is logged_code, (
+            f"Tool '{tool.name}' must be decorated with @_logged (outermost)."
+        )
+        inner = outer.__wrapped__
+        assert inner.__code__ is com_thread_code, (
+            f"Tool '{tool.name}' must be decorated with @_on_com_thread below @_logged."
+        )
+        assert not hasattr(inner.__wrapped__, "__wrapped__"), (
+            f"Tool '{tool.name}' has unexpected extra decorators."
+        )
+
+
 def test_version_is_semver():
     parts = srv.__version__.split(".")
     assert len(parts) == 3
