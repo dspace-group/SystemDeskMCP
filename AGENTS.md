@@ -27,9 +27,9 @@ When adding or changing a tool, follow [Extending the Server](README.md#extendin
 
 - Arrange / act / assert structure with comments.
 - Use the autouse `app` fixture (a `MagicMock` installed as `srv._application`); set `srv._application = None` to simulate "not started".
-- Call tools directly with their input model, e.g. `srv.validate_autosar(srv.ValidateAutosarInput())`.
+- Call tools directly with keyword arguments, e.g. `srv.validate_autosar(output_format=srv.ValidateOutputFormat.JSON)`. Direct calls skip Pydantic validation.
 - Assert on `status`, `error_type`, and `error_code`, not just messages.
-- Add schema tests (`pytest.raises(ValidationError)`) for new input constraints.
+- Add schema tests for new input constraints with `pytest.raises(ValidationError)` around `_validate_args(srv.<tool>, ...)`.
 - Use `tmp_path` for any files; do not write outside it.
 
 ## Gotchas

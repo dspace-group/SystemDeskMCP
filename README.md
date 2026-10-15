@@ -52,11 +52,11 @@ uv sync
 Recommended flow:
 
 1. `start_systemdesk()`
-2. `create_project(params={project_path, project_name})` or open an existing project
-3. `import_autosar_file(params={file_path, timeout=60})`
-4. `validate_autosar(params={output_format="markdown" | "json", timeout=120})`
-5. `close_project(params={save_project=True})`
-6. `close_systemdesk(params={save_project=True})`
+2. `create_project(project_path, project_name)` or open an existing project
+3. `import_autosar_file(file_path, timeout=60)`
+4. `validate_autosar(output_format="markdown" | "json", timeout=120)`
+5. `close_project(save_project=True)`
+6. `close_systemdesk(save_project=True)`
 
 Important:
 
@@ -90,31 +90,17 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 
 - `start_systemdesk()`
 - `get_systemdesk_status()`
-- `close_systemdesk(params={save_project=True})`
-- `create_project(params={project_path, project_name})`
-- `close_project(params={save_project=True})`
-- `import_autosar_file(params={file_path, timeout=60})`
-- `validate_autosar(params={output_format="markdown" | "json", timeout=120})`
+- `close_systemdesk(save_project=True)`
+- `create_project(project_path, project_name)`
+- `close_project(save_project=True)`
+- `import_autosar_file(file_path, timeout=60)`
+- `validate_autosar(output_format="markdown" | "json", timeout=120)`
 
 ## Extending the Server
 
-Add a new tool in `src/systemdesk_mcp/server.py`. If the tool has input parameters, define a Pydantic model for them that inherits from `_StrictInput` and use it as the tool's only parameter, named `params`. Field types, defaults, constraints, and descriptions (with an `Example:`) are defined only in the model. Tools without inputs take no parameters.
+Add a new tool in `src/systemdesk_mcp/server.py`. Declare each input as a flat function parameter typed `Annotated[<type>, Field(...)]`: the type, constraints, and description (with an `Example:`) live in the `Field`, the default in the signature. This is the single definition; FastMCP derives the JSON schema (including `additionalProperties: false`) and validates calls from it. Constraints shared across tools are defined once as `Annotated` aliases (e.g. `_TimeoutSeconds`) and combined with a tool-specific description. Tools without inputs take no parameters.
 
 ```python
-class MyNewToolInput(_StrictInput):
-    """Input schema for my_new_tool."""
-
-    element_path: str = Field(
-        description="AUTOSAR path of the element. Example: '/Package/MyElement'",
-    )
-    timeout: int = Field(
-        default=60,
-        ge=1,
-        le=_MAX_TIMEOUT_SECONDS,
-        description="Maximum number of seconds to wait. Example: 60",
-    )
-
-
 @mcp.tool(
     annotations={
         "readOnlyHint": True,
@@ -126,11 +112,19 @@ class MyNewToolInput(_StrictInput):
 )
 @_logged
 @_on_com_thread
-def my_new_tool(params: MyNewToolInput) -> dict[str, Any]:
+def my_new_tool(
+    element_path: Annotated[str, Field(
+        min_length=1,
+        description="AUTOSAR path of the element. Example: '/Package/MyElement'",
+    )],
+    timeout: Annotated[_TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @_on_com_thread
+        description="Maximum number of seconds to wait. Example: 60",
+    )] = 60,
+) -> dict[str, Any]:
     """Description shown to the MCP client."""
     try:
         app = _get_app()  # active COM connection
-        # ... call app.* COM methods using params.element_path ...
+        # ... call app.* COM methods using element_path ...
         return _ok({"message": "Done."})
     except _PermanentError as exc:
         return _error(str(exc), error_type="permanent", error_code=exc.error_code)
@@ -147,7 +141,7 @@ Notes:
 
 - Keep the decorators exactly in the order shown, with no others (checked by tests). Set all four annotations.
 - Use `_get_app()` to access the live SystemDesk COM object. Never touch COM objects outside the dedicated COM thread.
-- `@_on_com_thread` runs the tool on the dedicated COM thread. If the operation can block, add a `timeout` field as shown; it is used as the call timeout.
+- `@_on_com_thread` runs the tool on the dedicated COM thread. If the operation can block, add a `timeout` parameter as shown; it is used as the call timeout.
 - `@_logged` writes a structured log entry for every call.
 - Validate file paths with the existing `_*_PATTERN` regexes; only absolute local or UNC paths are accepted.
 - Return `_ok(...)` or `_error(...)` so that every tool has the same `status` / `error_type` / `error_code` response format. Use `error_type="permanent"` (via `_PermanentError`) for non-retryable failures and `"transient"` for the generic `except Exception` fallback.

@@ -6,14 +6,26 @@ COM is mocked at the _application singleton level — no SystemDesk installation
 # pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
 import inspect
+import json
 import os
 import typing
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ValidationError as FastMCPValidationError
 from fastmcp.tools import FunctionTool
-from pydantic import BaseModel, ValidationError
+from pydantic import TypeAdapter, ValidationError
+from pydantic.fields import FieldInfo
 import systemdesk_mcp.server as srv
+
+
+def _validate_args(tool, **kwargs):
+    """Validate kwargs against a tool's signature like FastMCP does, without running it."""
+    def stub(*_args, **_kwargs):
+        return None
+    stub.__signature__ = inspect.signature(tool)
+    stub.__annotations__ = typing.get_type_hints(tool, include_extras=True)
+    TypeAdapter(stub).validate_python(kwargs)
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +62,7 @@ def test_close_systemdesk_not_started():
     srv._application = None
 
     # act
-    result = srv.close_systemdesk(srv.CloseSystemDeskInput())
+    result = srv.close_systemdesk()
 
     # assert
     assert result["status"] == "error"
@@ -104,7 +116,7 @@ def test_get_systemdesk_status_running_with_project(app):
 
 def test_close_systemdesk_without_save(app):
     # act
-    result = srv.close_systemdesk(srv.CloseSystemDeskInput(save_project=False))
+    result = srv.close_systemdesk(save_project=False)
 
     # assert
     assert result["status"] == "success"
@@ -120,7 +132,7 @@ def test_close_systemdesk_with_save(app):
     app.ActiveProject = active_project
 
     # act
-    result = srv.close_systemdesk(srv.CloseSystemDeskInput(save_project=True))
+    result = srv.close_systemdesk(save_project=True)
 
     # assert
     assert result["status"] == "success"
@@ -137,7 +149,7 @@ def test_close_project_with_save(app):
     app.ActiveProject = active_project
 
     # act
-    result = srv.close_project(srv.CloseProjectInput(save_project=True))
+    result = srv.close_project(save_project=True)
 
     # assert
     assert result["status"] == "success"
@@ -155,7 +167,7 @@ def test_close_project_without_save(app):
     app.ActiveProject = active_project
 
     # act
-    result = srv.close_project(srv.CloseProjectInput(save_project=False))
+    result = srv.close_project(save_project=False)
 
     # assert
     assert result["status"] == "success"
@@ -168,7 +180,7 @@ def test_close_project_without_save(app):
 
 def test_import_autosar_wrong_extension_rejected_by_schema(tmp_path):
     with pytest.raises(ValidationError):
-        srv.ImportAutosarFileInput(file_path=str(tmp_path / "file.xml"))
+        _validate_args(srv.import_autosar_file, file_path=str(tmp_path / "file.xml"))
 
 
 _VALID_ABSOLUTE_DIRS = [
@@ -203,13 +215,13 @@ _INVALID_ABSOLUTE_DIRS = [
 
 @pytest.mark.parametrize("project_path", _VALID_ABSOLUTE_DIRS)
 def test_create_project_absolute_path_accepted_by_schema(project_path):
-    srv.CreateProjectInput(project_path=project_path, project_name="MyECU")
+    _validate_args(srv.create_project, project_path=project_path, project_name="MyECU")
 
 
 @pytest.mark.parametrize("project_path", _INVALID_ABSOLUTE_DIRS)
 def test_create_project_non_absolute_path_rejected_by_schema(project_path):
     with pytest.raises(ValidationError):
-        srv.CreateProjectInput(project_path=project_path, project_name="MyECU")
+        _validate_args(srv.create_project, project_path=project_path, project_name="MyECU")
 
 
 @pytest.mark.parametrize(
@@ -218,7 +230,7 @@ def test_create_project_non_absolute_path_rejected_by_schema(project_path):
     + ["C:\\Projects\\file.ARXML", "C:\\Projects\\file.ArXmL", "C:\\Projects\\my.file.arxml"],
 )
 def test_import_autosar_absolute_path_accepted_by_schema(file_path):
-    srv.ImportAutosarFileInput(file_path=file_path)
+    _validate_args(srv.import_autosar_file, file_path=file_path)
 
 
 @pytest.mark.parametrize(
@@ -240,33 +252,33 @@ def test_import_autosar_absolute_path_accepted_by_schema(file_path):
 )
 def test_import_autosar_invalid_path_rejected_by_schema(file_path):
     with pytest.raises(ValidationError):
-        srv.ImportAutosarFileInput(file_path=file_path)
+        _validate_args(srv.import_autosar_file, file_path=file_path)
 
 
 @pytest.mark.parametrize("timeout", [0, -1, srv._MAX_TIMEOUT_SECONDS + 1])
 def test_timeout_out_of_range_rejected_by_schema(timeout):
     with pytest.raises(ValidationError):
-        srv.ImportAutosarFileInput(file_path="C:\\a.arxml", timeout=timeout)
+        _validate_args(srv.import_autosar_file, file_path="C:\\a.arxml", timeout=timeout)
     with pytest.raises(ValidationError):
-        srv.ValidateAutosarInput(timeout=timeout)
+        _validate_args(srv.validate_autosar, timeout=timeout)
 
 
 @pytest.mark.parametrize("project_name", ["", "a/b", "a\\b", "a:b", "a*b", "a?b"])
 def test_create_project_invalid_name_rejected_by_schema(project_name):
     with pytest.raises(ValidationError):
-        srv.CreateProjectInput(project_path="C:\\Projects", project_name=project_name)
+        _validate_args(
+            srv.create_project, project_path="C:\\Projects", project_name=project_name
+        )
 
 
 def test_unknown_argument_rejected_by_schema():
     with pytest.raises(ValidationError):
-        srv.CloseSystemDeskInput(save_projct=False)
+        _validate_args(srv.close_systemdesk, save_projct=False)
 
 
 def test_import_autosar_file_not_found():
     # act
-    result = srv.import_autosar_file(
-        srv.ImportAutosarFileInput(file_path="C:\\nonexistent\\file.arxml")
-    )
+    result = srv.import_autosar_file(file_path="C:\\nonexistent\\file.arxml")
 
     # assert
     assert result["status"] == "error"
@@ -285,7 +297,7 @@ def test_import_autosar_file_success(app, tmp_path):
     app.ActiveProject = active_project
 
     # act
-    result = srv.import_autosar_file(srv.ImportAutosarFileInput(file_path=str(arxml_file)))
+    result = srv.import_autosar_file(file_path=str(arxml_file))
 
     # assert
     assert result["status"] == "success"
@@ -323,7 +335,7 @@ def test_import_autosar_file_schema_error(app, tmp_path):
     msg.Children.Elements[1].Children.Elements = []
 
     # act
-    result = srv.import_autosar_file(srv.ImportAutosarFileInput(file_path=str(arxml_file)))
+    result = srv.import_autosar_file(file_path=str(arxml_file))
 
     # assert
     assert result["status"] == "error"
@@ -342,7 +354,7 @@ def test_import_autosar_no_project_open(app, tmp_path):
     app.ActiveProject = None
 
     # act
-    result = srv.import_autosar_file(srv.ImportAutosarFileInput(file_path=str(arxml_file)))
+    result = srv.import_autosar_file(file_path=str(arxml_file))
 
     # assert
     assert result["status"] == "error"
@@ -360,9 +372,7 @@ def test_create_project_success(app, tmp_path):
     app.CreateProject.return_value = created_project
 
     # act
-    result = srv.create_project(
-        srv.CreateProjectInput(project_path=str(project_dir), project_name=project_name)
-    )
+    result = srv.create_project(project_path=str(project_dir), project_name=project_name)
 
     # assert
     assert result["status"] == "success"
@@ -385,7 +395,7 @@ def test_validate_autosar_with_error(app):
     app.ActiveProject.Validate.ResultStructure.RuleResults = [rule_result]
 
     # act
-    result = srv.validate_autosar(srv.ValidateAutosarInput())
+    result = srv.validate_autosar()
 
     # assert
     assert result["status"] == "success"
@@ -408,7 +418,7 @@ def test_validate_autosar_with_warning(app):
     app.ActiveProject.Validate.ResultStructure.RuleResults = [rule_result]
 
     # act
-    result = srv.validate_autosar(srv.ValidateAutosarInput())
+    result = srv.validate_autosar()
 
     # assert
     assert result["status"] == "success"
@@ -441,7 +451,7 @@ def test_validate_autosar_with_child_messages_markdown(app):
     app.ActiveProject.Validate.ResultStructure.RuleResults = [rule_result]
 
     # act
-    result = srv.validate_autosar(srv.ValidateAutosarInput())
+    result = srv.validate_autosar()
 
     # assert
     assert result["status"] == "success"
@@ -470,9 +480,7 @@ def test_validate_autosar_with_child_messages_json(app):
     app.ActiveProject.Validate.ResultStructure.RuleResults = [rule_result]
 
     # act
-    result = srv.validate_autosar(
-        srv.ValidateAutosarInput(output_format=srv.ValidateOutputFormat.JSON)
-    )
+    result = srv.validate_autosar(output_format=srv.ValidateOutputFormat.JSON)
 
     # assert
     assert result["status"] == "success"
@@ -504,7 +512,7 @@ def test_validate_autosar_with_no_results(app):
     app.ActiveProject.Validate.ResultStructure.RuleResults = []
 
     # act
-    result = srv.validate_autosar(srv.ValidateAutosarInput())
+    result = srv.validate_autosar()
 
     # assert
     assert result["status"] == "success"
@@ -519,7 +527,7 @@ def test_validate_autosar_no_project_open(app):
     app.ActiveProject = None
 
     # act
-    result = srv.validate_autosar(srv.ValidateAutosarInput())
+    result = srv.validate_autosar()
 
     # assert
     assert result["status"] == "error"
@@ -529,7 +537,7 @@ def test_validate_autosar_no_project_open(app):
 
 
 @pytest.mark.anyio
-async def test_tools_with_parameters_use_single_params_model():
+async def test_tool_parameters_are_described_and_strict():
     tools = await srv.mcp.list_tools()
     assert tools
 
@@ -537,29 +545,45 @@ async def test_tools_with_parameters_use_single_params_model():
         assert isinstance(tool, FunctionTool), (
             f"Tool '{tool.name}' is not a FunctionTool and cannot be inspected."
         )
-        sig = inspect.signature(tool.fn)
-        if not sig.parameters:
-            continue
+        assert tool.parameters.get("additionalProperties") is False, (
+            f"Tool '{tool.name}': schema must reject unknown arguments."
+        )
+        hints = typing.get_type_hints(tool.fn, include_extras=True)
+        for name in inspect.signature(tool.fn).parameters:
+            hint = hints.get(name)
+            assert typing.get_origin(hint) is typing.Annotated and any(
+                isinstance(m, FieldInfo) for m in hint.__metadata__
+            ), (
+                f"Tool '{tool.name}': parameter '{name}' must be Annotated[<type>, Field(...)]."
+            )
+        for name, prop in tool.parameters.get("properties", {}).items():
+            assert "Example:" in prop.get("description", ""), (
+                f"Tool '{tool.name}': parameter '{name}' needs a description with an example."
+            )
 
-        assert list(sig.parameters) == ["params"], (
-            f"Tool '{tool.name}' must have a single parameter named 'params'."
-        )
-        annotation = typing.get_type_hints(tool.fn)["params"]
-        assert inspect.isclass(annotation) and issubclass(annotation, BaseModel), (
-            f"Tool '{tool.name}': 'params' must be a Pydantic model."
-        )
-        assert annotation.model_config.get("extra") == "forbid", (
-            f"Tool '{tool.name}': 'params' model must forbid extra fields."
-        )
-        assert sig.parameters["params"].default is inspect.Parameter.empty, (
-            f"Tool '{tool.name}': 'params' must not have a default."
-        )
-        assert set(tool.parameters["properties"]) == {"params"}, (
-            f"Tool '{tool.name}': schema must only expose 'params'."
-        )
-        assert "params" in tool.parameters.get("required", []), (
-            f"Tool '{tool.name}': 'params' must be required in the schema."
-        )
+
+@pytest.mark.anyio
+async def test_server_runs_tool_when_field_constraint_is_met(app):
+    # arrange
+    app.ActiveProject.Validate.ResultStructure.RuleResults = []
+
+    # act
+    result = await srv.mcp.call_tool("validate_autosar", {"timeout": 1})
+
+    # assert
+    assert json.loads(result.content[0].text)["status"] == "success"
+    app.ActiveProject.Validate.Do.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_server_enforces_field_constraint_before_tool_runs(app):
+    # act
+    # Called on the server without a client, so the server must be what rejects it.
+    with pytest.raises(FastMCPValidationError):
+        await srv.mcp.call_tool("validate_autosar", {"timeout": 0})
+
+    # assert
+    assert not app.mock_calls, "Tool body must not run when arguments are invalid."
 
 
 @pytest.mark.anyio
