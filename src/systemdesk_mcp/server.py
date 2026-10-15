@@ -16,11 +16,11 @@ import logging
 import time
 import uuid
 from enum import Enum
-from typing import Any, Iterable, Optional
+from typing import Annotated, Any, Iterable, Optional
 
 import pythoncom
 from fastmcp import FastMCP
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 __version__ = "0.1.0"
 
@@ -153,7 +153,8 @@ def _on_com_thread(fn):
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         bound = sig.bind(*args, **kwargs)
-        timeout = getattr(bound.arguments.get("params"), "timeout", None)
+        bound.apply_defaults()
+        timeout = bound.arguments.get("timeout")
         future = _com_executor.submit(fn, *args, **kwargs)
         try:
             return future.result(timeout=timeout)
@@ -173,19 +174,13 @@ _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
-def _json_default(obj: Any) -> Any:
-    if isinstance(obj, BaseModel):
-        return obj.model_dump(mode="json")
-    return str(obj)
-
-
 def _logged(fn):
     """Emit a structured JSON log entry for every tool invocation."""
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         correlation_id = str(uuid.uuid4())
         input_hash = hashlib.sha256(
-            json.dumps(kwargs, sort_keys=True, default=_json_default).encode()
+            json.dumps(kwargs, sort_keys=True, default=str).encode()
         ).hexdigest()[:16]
         t0 = time.monotonic()
         result = fn(*args, **kwargs)
@@ -210,7 +205,7 @@ def _logged(fn):
 
 
 # ---------------------------------------------------------------------------
-# Input models
+# Input types
 # ---------------------------------------------------------------------------
 
 # Drive-letter path (C:\ or C:/) or UNC network path (\\server\share).
@@ -221,76 +216,8 @@ _ARXML_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*\.[aA][rR][xX][mM][lL]$"
 _FILE_NAME_PATTERN = r'^[^<>:"/\\|?*\x00-\x1F]+$'
 _MAX_TIMEOUT_SECONDS = 3600
 
-
-class _StrictInput(BaseModel):
-    """Base class for tool input models; rejects unknown properties."""
-
-    model_config = ConfigDict(extra="forbid")
-
-
-class CloseSystemDeskInput(_StrictInput):
-    """Input schema for close_systemdesk."""
-
-    save_project: bool = Field(
-        default=True,
-        description=(
-            "If True, the currently open project is saved before SystemDesk is closed. "
-            "Example: True"
-        ),
-    )
-
-
-class CreateProjectInput(_StrictInput):
-    """Input schema for create_project."""
-
-    project_path: str = Field(
-        min_length=1,
-        pattern=_ABSOLUTE_PATH_PATTERN,
-        description=(
-            "Absolute local or UNC path to the directory where the project file will be created. "
-            "Example: 'C:\\Projects\\MyECU'"
-        )
-    )
-    project_name: str = Field(
-        min_length=1,
-        pattern=_FILE_NAME_PATTERN,
-        description=(
-            "Name of the new SystemDesk project (without file extension). "
-            "Must not contain path separators or any of <>:\"/\\|?*. "
-            "Example: 'MyECU_Architecture'"
-        )
-    )
-
-
-class CloseProjectInput(_StrictInput):
-    """Input schema for close_project."""
-
-    save_project: bool = Field(
-        default=True,
-        description=(
-            "If True, saves the project before closing it. "
-            "Example: True"
-        ),
-    )
-
-
-class ImportAutosarFileInput(_StrictInput):
-    """Input schema for import_autosar_file."""
-
-    file_path: str = Field(
-        min_length=1,
-        pattern=_ARXML_PATTERN,
-        description=(
-            "Absolute local or UNC path to the AUTOSAR file (.arxml) to import. "
-            "Example: 'C:\\Projects\\MyECU\\SoftwareComponent.arxml'"
-        )
-    )
-    timeout: int = Field(
-        default=60,
-        ge=1,
-        le=_MAX_TIMEOUT_SECONDS,
-        description="Maximum number of seconds to wait for the import to complete. Example: 60",
-    )
+# Shared constraints; combine with a tool-specific Field(description=...) via Annotated.
+_TimeoutSeconds = Annotated[int, Field(ge=1, le=_MAX_TIMEOUT_SECONDS)]
 
 
 class ValidateOutputFormat(str, Enum):
@@ -298,25 +225,6 @@ class ValidateOutputFormat(str, Enum):
 
     MARKDOWN = "markdown"
     JSON = "json"
-
-
-class ValidateAutosarInput(_StrictInput):
-    """Input schema for validate_autosar."""
-
-    output_format: ValidateOutputFormat = Field(
-        default=ValidateOutputFormat.MARKDOWN,
-        description=(
-            "Format for the validation result output. "
-            "Accepted values: 'markdown', 'json'. "
-            "Example: 'markdown'"
-        ),
-    )
-    timeout: int = Field(
-        default=120,
-        ge=1,
-        le=_MAX_TIMEOUT_SECONDS,
-        description="Maximum number of seconds to wait for validation to complete. Example: 120",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -437,7 +345,14 @@ def start_systemdesk(
 )
 @_logged
 @_on_com_thread
-def close_systemdesk(params: CloseSystemDeskInput) -> dict[str, Any]:
+def close_systemdesk(
+    save_project: Annotated[bool, Field(
+        description=(
+            "If True, the currently open project is saved before SystemDesk is closed. "
+            "Example: True"
+        ),
+    )] = True,
+) -> dict[str, Any]:
     """
     Close SystemDesk and release the COM connection.
 
@@ -456,7 +371,7 @@ def close_systemdesk(params: CloseSystemDeskInput) -> dict[str, Any]:
     try:
         app = _get_app()
 
-        if params.save_project:
+        if save_project:
             try:
                 active_project = app.ActiveProject
                 if active_project is not None:
@@ -568,7 +483,25 @@ def get_systemdesk_status() -> dict[str, Any]:
 )
 @_logged
 @_on_com_thread
-def create_project(params: CreateProjectInput) -> dict[str, Any]:
+def create_project(
+    project_path: Annotated[str, Field(
+        min_length=1,
+        pattern=_ABSOLUTE_PATH_PATTERN,
+        description=(
+            "Absolute local or UNC path to the directory where the project file will be created. "
+            "Example: 'C:\\Projects\\MyECU'"
+        ),
+    )],
+    project_name: Annotated[str, Field(
+        min_length=1,
+        pattern=_FILE_NAME_PATTERN,
+        description=(
+            "Name of the new SystemDesk project (without file extension). "
+            "Must not contain path separators or any of <>:\"/\\|?*. "
+            "Example: 'MyECU_Architecture'"
+        ),
+    )],
+) -> dict[str, Any]:
     """
     Create a new SystemDesk project at the specified path.
 
@@ -588,25 +521,24 @@ def create_project(params: CreateProjectInput) -> dict[str, Any]:
     try:
         app = _get_app()
 
-        project_dir = params.project_path
-        project_file = os.path.join(project_dir, f"{params.project_name}.sdp")
+        project_file = os.path.join(project_path, f"{project_name}.sdp")
 
-        os.makedirs(project_dir, exist_ok=True)
+        os.makedirs(project_path, exist_ok=True)
 
         project = app.CreateProject(project_file)
         project.Save()
 
         return _ok({
-            "project_name": params.project_name,
+            "project_name": project_name,
             "project_file": project_file,
-            "message": f"Project '{params.project_name}' created successfully.",
+            "message": f"Project '{project_name}' created successfully.",
         })
 
     except _PermanentError as exc:
         return _error(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return _error(
-            f"Failed to create project '{params.project_name}'.",
+            f"Failed to create project '{project_name}'.",
             error_type="transient",
             error_code=ErrorCode.PROJECT_CREATION_FAILED,
             details=str(exc),
@@ -624,7 +556,11 @@ def create_project(params: CreateProjectInput) -> dict[str, Any]:
 )
 @_logged
 @_on_com_thread
-def close_project(params: CloseProjectInput) -> dict[str, Any]:
+def close_project(
+    save_project: Annotated[bool, Field(
+        description="If True, saves the project before closing it. Example: True",
+    )] = True,
+) -> dict[str, Any]:
     """
     Close the currently open SystemDesk project.
 
@@ -649,14 +585,14 @@ def close_project(params: CloseProjectInput) -> dict[str, Any]:
 
         project_name = active_project.Name
 
-        if params.save_project:
+        if save_project:
             active_project.Save()
 
         active_project.Close(False)
 
         return _ok({
             "project_name": project_name,
-            "saved": params.save_project,
+            "saved": save_project,
             "message": f"Project '{project_name}' closed successfully.",
         })
 
@@ -687,7 +623,19 @@ def close_project(params: CloseProjectInput) -> dict[str, Any]:
 )
 @_logged
 @_on_com_thread
-def import_autosar_file(params: ImportAutosarFileInput) -> dict[str, Any]:
+def import_autosar_file(
+    file_path: Annotated[str, Field(
+        min_length=1,
+        pattern=_ARXML_PATTERN,
+        description=(
+            "Absolute local or UNC path to the AUTOSAR file (.arxml) to import. "
+            "Example: 'C:\\Projects\\MyECU\\SoftwareComponent.arxml'"
+        ),
+    )],
+    timeout: Annotated[_TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @_on_com_thread
+        description="Maximum number of seconds to wait for the import to complete. Example: 60",
+    )] = 60,
+) -> dict[str, Any]:
     """
     Import an AUTOSAR file (.arxml) into the currently open SystemDesk project.
 
@@ -709,9 +657,9 @@ def import_autosar_file(params: ImportAutosarFileInput) -> dict[str, Any]:
     try:
         app = _get_app()
 
-        if not os.path.isfile(params.file_path):
+        if not os.path.isfile(file_path):
             raise _PermanentError(
-                f"File not found: '{params.file_path}'. "
+                f"File not found: '{file_path}'. "
                 "Provide an absolute path to an existing .arxml file.",
                 error_code=ErrorCode.FILE_NOT_FOUND)
 
@@ -722,7 +670,7 @@ def import_autosar_file(params: ImportAutosarFileInput) -> dict[str, Any]:
                 "Call create_project or open a project first.",
                 error_code=ErrorCode.NO_PROJECT_OPEN)
 
-        import_export_file = active_project.ImportExportFiles.Add(params.file_path)
+        import_export_file = active_project.ImportExportFiles.Add(file_path)
         import_export_file.AddNewElementsToConfiguration = True
         import_export_file.ExportDiagrams = True
         import_export_file.ImportDiagrams = True
@@ -736,16 +684,16 @@ def import_autosar_file(params: ImportAutosarFileInput) -> dict[str, Any]:
             import_export_file.Delete()
 
             return _error(
-                f"Failed to import AUTOSAR file '{params.file_path}'.",
+                f"Failed to import AUTOSAR file '{file_path}'.",
                 error_type="permanent",
                 error_code=ErrorCode.IMPORT_REJECTED,
                 details=_get_import_autosar_file_error_details(),
             )
 
         return _ok({
-            "imported_file": params.file_path,
+            "imported_file": file_path,
             "message": (
-                f"AUTOSAR file '{os.path.basename(params.file_path)}' imported successfully. "
+                f"AUTOSAR file '{os.path.basename(file_path)}' imported successfully. "
                 "Use validate_autosar to check for design rule violations."
             ),
         })
@@ -754,7 +702,7 @@ def import_autosar_file(params: ImportAutosarFileInput) -> dict[str, Any]:
         return _error(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return _error(
-            f"Failed to import AUTOSAR file '{params.file_path}'.",
+            f"Failed to import AUTOSAR file '{file_path}'.",
             error_type="transient",
             error_code=ErrorCode.IMPORT_FAILED,
             details=str(exc),
@@ -787,7 +735,18 @@ def _dump_message(message, indent=0) -> Iterable[str]:
 )
 @_logged
 @_on_com_thread
-def validate_autosar(params: ValidateAutosarInput) -> dict[str, Any]:
+def validate_autosar(
+    output_format: Annotated[ValidateOutputFormat, Field(
+        description=(
+            "Format for the validation result output. "
+            "Accepted values: 'markdown', 'json'. "
+            "Example: 'markdown'"
+        ),
+    )] = ValidateOutputFormat.MARKDOWN,
+    timeout: Annotated[_TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @_on_com_thread
+        description="Maximum number of seconds to wait for validation to complete. Example: 120",
+    )] = 120,
+) -> dict[str, Any]:
     """
     Validate the currently open SystemDesk project against AUTOSAR design rules.
 
@@ -828,7 +787,7 @@ def validate_autosar(params: ValidateAutosarInput) -> dict[str, Any]:
         error_count = sum(1 for r in rule_results if r["severity"] == "Error")
         warning_count = sum(1 for r in rule_results if r["severity"] == "Warning")
 
-        if params.output_format == ValidateOutputFormat.MARKDOWN:
+        if output_format == ValidateOutputFormat.MARKDOWN:
             lines = [
                 "# Validation Result",
                 f"**Errors:** {error_count} | **Warnings:** {warning_count} | **Total:** {len(rule_results)}",
