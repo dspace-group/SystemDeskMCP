@@ -8,6 +8,8 @@ COM is mocked at the _application singleton level — no SystemDesk installation
 import inspect
 import json
 import os
+import runpy
+import threading
 import typing
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +19,8 @@ from fastmcp.tools import FunctionTool
 from pydantic import TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
 import systemdesk_mcp.server as srv
+from systemdesk_mcp import common, runtime
+from systemdesk_mcp.mcp_app import mcp
 
 
 def _validate_args(tool, **kwargs):
@@ -30,21 +34,21 @@ def _validate_args(tool, **kwargs):
 
 @pytest.fixture(autouse=True)
 def reset_com_singleton():
-    saved = srv._application
+    saved = runtime._application
     yield
-    srv._application = saved
+    runtime._application = saved
 
 
 @pytest.fixture(autouse=True)
 def app():
     mock = MagicMock()
-    srv._application = mock
+    runtime._application = mock
     return mock
 
 
 def test_start_systemdesk_win32com_missing():
     # arrange
-    srv._application = None
+    runtime._application = None
 
     with patch.dict("sys.modules", {"win32com": None, "win32com.client": None}):
         # act
@@ -59,7 +63,7 @@ def test_start_systemdesk_win32com_missing():
 def test_close_systemdesk_not_started():
     # arrange
     # Representative guard - same pattern across all tools.
-    srv._application = None
+    runtime._application = None
 
     # act
     result = srv.close_systemdesk()
@@ -72,7 +76,7 @@ def test_close_systemdesk_not_started():
 
 def test_get_systemdesk_status_not_running():
     # arrange
-    srv._application = None
+    runtime._application = None
 
     # act
     result = srv.get_systemdesk_status()
@@ -123,7 +127,7 @@ def test_close_systemdesk_without_save(app):
     assert "closed successfully" in result["message"].lower()
     app.ActiveProject.Save.assert_not_called()
     app.Quit.assert_called_once()
-    assert srv._application is None
+    assert runtime._application is None
 
 
 def test_close_systemdesk_with_save(app):
@@ -139,7 +143,7 @@ def test_close_systemdesk_with_save(app):
     assert "closed successfully" in result["message"].lower()
     active_project.Save.assert_called_once()
     app.Quit.assert_called_once()
-    assert srv._application is None
+    assert runtime._application is None
 
 
 def test_close_project_with_save(app):
@@ -255,7 +259,7 @@ def test_import_autosar_invalid_path_rejected_by_schema(file_path):
         _validate_args(srv.import_autosar_file, file_path=file_path)
 
 
-@pytest.mark.parametrize("timeout", [0, -1, srv._MAX_TIMEOUT_SECONDS + 1])
+@pytest.mark.parametrize("timeout", [0, -1, common._MAX_TIMEOUT_SECONDS + 1])
 def test_timeout_out_of_range_rejected_by_schema(timeout):
     with pytest.raises(ValidationError):
         _validate_args(srv.import_autosar_file, file_path="C:\\a.arxml", timeout=timeout)
@@ -589,8 +593,8 @@ async def test_server_enforces_field_constraint_before_tool_runs(app):
 @pytest.mark.anyio
 async def test_tools_are_logged_and_on_com_thread():
     # Every wrapper produced by a decorator shares that decorator's inner code object.
-    logged_code = srv._logged(lambda: None).__code__
-    com_thread_code = srv._on_com_thread(lambda: None).__code__
+    logged_code = common._logged(lambda: None).__code__
+    com_thread_code = runtime._on_com_thread(lambda: None).__code__
 
     tools = await srv.mcp.list_tools()
     assert tools
@@ -610,6 +614,85 @@ async def test_tools_are_logged_and_on_com_thread():
         assert not hasattr(inner.__wrapped__, "__wrapped__"), (
             f"Tool '{tool.name}' has unexpected extra decorators."
         )
+
+
+@pytest.mark.anyio
+async def test_server_registers_exactly_the_original_tools():
+    # arrange
+    expected_names = {
+        "start_systemdesk", "close_systemdesk", "get_systemdesk_status",
+        "create_project", "close_project", "import_autosar_file", "validate_autosar",
+    }
+
+    # act
+    tools = await srv.mcp.list_tools()
+
+    # assert
+    assert srv.mcp is mcp
+    assert len(tools) == len(expected_names)
+    assert {tool.name for tool in tools} == expected_names
+    assert all(tool.fn is getattr(srv, tool.name) for tool in tools)
+
+
+def test_tool_groups_share_connection_and_com_worker(app, tmp_path):
+    # arrange
+    runtime._application = None
+    worker_threads = []
+    project = app.CreateProject.return_value
+    project.Name = "SharedProject"
+    project.Validate.ResultStructure.RuleResults = []
+    app.ActiveProject = project
+    arxml_file = tmp_path / "shared.arxml"
+    arxml_file.write_text("<AUTOSAR/>")
+
+    def record_thread(result):
+        def call(*_args):
+            worker_threads.append(threading.get_ident())
+            return result
+        return call
+
+    app.CreateProject.side_effect = record_thread(project)
+    project.ImportExportFiles.Add.return_value.Import.side_effect = record_thread(True)
+    project.Validate.Do.side_effect = record_thread(None)
+    app.Quit.side_effect = record_thread(None)
+
+    # act
+    with patch("win32com.client.Dispatch", side_effect=record_thread(app)):
+        started = srv.start_systemdesk()
+    created = srv.create_project(project_path=str(tmp_path), project_name="SharedProject")
+    status = srv.get_systemdesk_status()
+    imported = srv.import_autosar_file(file_path=str(arxml_file))
+    validated = srv.validate_autosar()
+    closed = srv.close_systemdesk(save_project=False)
+    after_close = srv.validate_autosar()
+
+    # assert
+    assert all(result["status"] == "success" for result in (
+        started, created, status, imported, validated, closed,
+    ))
+    assert status["project_name"] == "SharedProject"
+    assert runtime._application is None
+    assert after_close["status"] == "error"
+    assert after_close["error_type"] == "permanent"
+    assert after_close["error_code"] == "SYSTEMDESK_NOT_RUNNING"
+    assert len(worker_threads) == 5
+    assert len(set(worker_threads)) == 1
+    assert worker_threads[0] != threading.get_ident()
+
+
+def test_entry_point_uses_shared_mcp_without_duplicate_runtime():
+    # arrange
+    executor = runtime._com_executor
+
+    # act
+    with patch.object(mcp, "run") as run:
+        entry_globals = runpy.run_path(srv.__file__, run_name="__main__")
+
+    # assert
+    run.assert_called_once_with(transport="stdio")
+    assert entry_globals["mcp"] is srv.mcp
+    assert entry_globals["start_systemdesk"] is srv.start_systemdesk
+    assert runtime._com_executor is executor
 
 
 def test_version_is_semver():

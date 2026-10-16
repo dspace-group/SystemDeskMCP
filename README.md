@@ -98,9 +98,24 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 
 ## Extending the Server
 
-Add a new tool in `src/systemdesk_mcp/server.py`. Declare each input as a flat function parameter typed `Annotated[<type>, Field(...)]`: the type, constraints, and description (with an `Example:`) live in the `Field`, the default in the signature. This is the single definition; FastMCP derives the JSON schema (including `additionalProperties: false`) and validates calls from it. Constraints shared across tools are defined once as `Annotated` aliases (e.g. `_TimeoutSeconds`) and combined with a tool-specific description. Tools without inputs take no parameters.
+Add a new tool in the appropriate module under `src/systemdesk_mcp/tools/`: `lifecycle.py`, `projects.py`, or `autosar.py`. Import and re-export the tool in `server.py` to register it at startup. For a new domain, add a module under `tools/` and import its tools in the same way. Tool modules must never import `server.py`.
+
+Use the shared `mcp` instance from `mcp_app.py`, COM access and execution helpers from `runtime.py`, and errors, responses, logging, and input constraints from `common.py`. Keep domain-specific helpers alongside their tools.
+
+Declare each input as a flat function parameter typed `Annotated[<type>, Field(...)]`: the type, constraints, and description (with an `Example:`) live in the `Field`, the default in the signature. This is the single definition; FastMCP derives the JSON schema (including `additionalProperties: false`) and validates calls from it. Constraints shared across tools are defined once as `Annotated` aliases (e.g. `_TimeoutSeconds`) and combined with a tool-specific description. Tools without inputs take no parameters.
 
 ```python
+from typing import Annotated, Any
+
+from pydantic import Field
+
+from systemdesk_mcp.common import (
+    ErrorCode, _PermanentError, _TimeoutSeconds, _error, _logged, _ok,
+)
+from systemdesk_mcp.mcp_app import mcp
+from systemdesk_mcp.runtime import _get_app, _on_com_thread
+
+
 @mcp.tool(
     annotations={
         "readOnlyHint": True,
@@ -141,6 +156,7 @@ Notes:
 
 - Keep the decorators exactly in the order shown, with no others (checked by tests). Set all four annotations.
 - Use `_get_app()` to access the live SystemDesk COM object. Never touch COM objects outside the dedicated COM thread.
+- `runtime.py` is the sole owner of the COM connection and executor. Lifecycle tools update `runtime._application` through the module, never a separately imported `_application` binding.
 - `@_on_com_thread` runs the tool on the dedicated COM thread. If the operation can block, add a `timeout` parameter as shown; it is used as the call timeout.
 - `@_logged` writes a structured log entry for every call.
 - Validate file paths with the existing `_*_PATTERN` regexes; only absolute local or UNC paths are accepted.
@@ -158,7 +174,12 @@ Notes:
 
 ## File Overview
 
-- `src/systemdesk_mcp/server.py`: MCP server and tools
+- `src/systemdesk_mcp/server.py`: tool registration, compatibility exports, and stdio entry point
+- `src/systemdesk_mcp/mcp_app.py`: shared FastMCP instance and server instructions
+- `src/systemdesk_mcp/runtime.py`: shared COM connection, worker thread, timeouts, and cleanup
+- `src/systemdesk_mcp/common.py`: shared errors, responses, logging, and input constraints
+- `src/systemdesk_mcp/tools/`: lifecycle, project, and AUTOSAR tool implementations
+- `src/systemdesk_mcp/__init__.py`: package version
 - `tests/`: unit tests and ARXML test fixtures
 - `pyproject.toml`: project metadata and Python dependencies (managed with `uv`)
 - `SystemDeskMCP.cmd`: Convenience launcher used by MCP clients
