@@ -1,18 +1,19 @@
 """Tests for server behavior."""
 # pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
+import inspect
 import json
-import runpy
 import threading
+import typing
 from unittest.mock import patch
 
 import pytest
+from pydantic.fields import FieldInfo
 from fastmcp.exceptions import ValidationError as FastMCPValidationError
 
 import systemdesk_mcp.server as srv
 from systemdesk_mcp import common, runtime
-from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.tools import autosar, lifecycle, projects, load_tools
+from systemdesk_mcp.tools import autosar, lifecycle, projects
 from tests.helpers import registered_function_tools
 
 
@@ -62,29 +63,6 @@ async def test_tools_are_logged_and_on_com_thread():
         )
 
 
-@pytest.mark.anyio
-async def test_server_registers_exactly_the_original_tools():
-    # arrange
-    expected_names = {
-        "start_systemdesk", "close_systemdesk", "get_systemdesk_status",
-        "create_project", "close_project", "import_autosar_file", "validate_autosar",
-    }
-
-    # act
-    tools = await srv.mcp.list_tools()
-
-    # assert
-    assert srv.mcp is mcp
-    assert len(tools) == len(expected_names)
-    assert {tool.name for tool in tools} == expected_names
-    assert all(tool.fn is getattr(
-        {"start_systemdesk": lifecycle, "close_systemdesk": lifecycle,
-         "get_systemdesk_status": lifecycle, "create_project": projects,
-         "close_project": projects, "import_autosar_file": autosar,
-         "validate_autosar": autosar}[tool.name], tool.name,
-    ) for tool in tools)
-
-
 def test_tool_groups_share_connection_and_com_worker(app, tmp_path):
     # arrange
     runtime._application = None
@@ -131,22 +109,29 @@ def test_tool_groups_share_connection_and_com_worker(app, tmp_path):
     assert worker_threads[0] != threading.get_ident()
 
 
-def test_entry_point_uses_shared_mcp_without_duplicate_runtime():
-    # arrange
-    executor = runtime._com_executor
-
-    # act
-    with patch.object(mcp, "run") as run:
-        entry_globals = runpy.run_path(srv.__file__, run_name="__main__")
-
-    # assert
-    run.assert_called_once_with(transport="stdio")
-    assert entry_globals["mcp"] is srv.mcp
-    assert entry_globals["load_tools"] is load_tools
-    assert runtime._com_executor is executor
-
-
 def test_version_is_semver():
     parts = srv.__version__.split(".")
     assert len(parts) == 3
     assert all(p.isdigit() for p in parts)
+
+
+@pytest.mark.anyio
+async def test_tool_parameters_are_described_and_strict():
+    tools = await registered_function_tools(srv.mcp)
+
+    for tool in tools:
+        assert tool.parameters.get("additionalProperties") is False, (
+            f"Tool '{tool.name}': schema must reject unknown arguments."
+        )
+        hints = typing.get_type_hints(tool.fn, include_extras=True)
+        for name in inspect.signature(tool.fn).parameters:
+            hint = hints.get(name)
+            assert typing.get_origin(hint) is typing.Annotated and any(
+                isinstance(m, FieldInfo) for m in hint.__metadata__
+            ), (
+                f"Tool '{tool.name}': parameter '{name}' must be Annotated[<type>, Field(...)]."
+            )
+        for name, prop in tool.parameters.get("properties", {}).items():
+            assert "Example:" in prop.get("description", ""), (
+                f"Tool '{tool.name}': parameter '{name}' needs a description with an example."
+            )

@@ -3,7 +3,12 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+from pydantic import ValidationError
+
 from systemdesk_mcp.tools import autosar
+from systemdesk_mcp import common
+from tests.helpers import VALID_ABSOLUTE_DIRS, validate_args
 
 
 def test_import_autosar_file_not_found():
@@ -243,3 +248,47 @@ def test_import_autosar_file_schema_error(app, tmp_path):
     active_project.ImportExportFiles.Add.assert_called_once_with(str(arxml_file))
     import_export_file.Import.assert_called_once()
     import_export_file.Delete.assert_called_once()
+
+
+def test_import_autosar_wrong_extension_rejected_by_schema(tmp_path):
+    with pytest.raises(ValidationError):
+        validate_args(autosar.import_autosar_file, file_path=str(tmp_path / "file.xml"))
+
+
+@pytest.mark.parametrize(
+    "file_path",
+    [d.rstrip("\\/") + "\\file.arxml" for d in VALID_ABSOLUTE_DIRS]
+    + ["C:\\Projects\\file.ARXML", "C:\\Projects\\file.ArXmL", "C:\\Projects\\my.file.arxml"],
+)
+def test_import_autosar_absolute_path_accepted_by_schema(file_path):
+    validate_args(autosar.import_autosar_file, file_path=file_path)
+
+
+@pytest.mark.parametrize(
+    "file_path",
+    [
+        "file.arxml",
+        "Projects\\file.arxml",
+        ".\\file.arxml",
+        "..\\Projects\\file.arxml",
+        "\\Projects\\file.arxml",
+        "/Projects/file.arxml",
+        "C:file.arxml",
+        "1:\\Projects\\file.arxml",
+        "\\\\\\share\\file.arxml",
+        "C:\\Projects\\file.xml",
+        "C:\\Projects\\file.arxml.bak",
+        "C:\\Projects\\filearxml",
+    ],
+)
+def test_import_autosar_invalid_path_rejected_by_schema(file_path):
+    with pytest.raises(ValidationError):
+        validate_args(autosar.import_autosar_file, file_path=file_path)
+
+
+@pytest.mark.parametrize("timeout", [0, -1, common.MAX_TIMEOUT_SECONDS + 1])
+def test_timeout_out_of_range_rejected_by_schema(timeout):
+    with pytest.raises(ValidationError):
+        validate_args(autosar.import_autosar_file, file_path="C:\\a.arxml", timeout=timeout)
+    with pytest.raises(ValidationError):
+        validate_args(autosar.validate_autosar, timeout=timeout)

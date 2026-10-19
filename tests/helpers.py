@@ -25,3 +25,33 @@ async def registered_function_tools(mcp):
             f"Tool '{tool.name}' is not a FunctionTool and cannot be inspected."
         )
     return tools
+
+
+VALID_ABSOLUTE_DIRS = [
+    "C:\\",
+    "C:/",
+    "c:\\Projects",
+    "C:\\Projects\\My ECU",
+    "C:/Projects/MyECU",
+    "C:\\Projects/Mixed\\Separators",
+    "\\\\server\\share",
+    "\\\\server\\share\\Projects",
+    "//server/share/Projects",
+    "\\\\192.168.0.1\\share\\Projects",
+    "\\\\?\\C:\\Very\\Long\\Path",
+]
+
+INVALID_ABSOLUTE_DIRS = [
+    "Projects",
+    "Projects\\MyECU",
+    ".\\Projects",
+    "..\\Projects",
+    "\\Projects",
+    "/Projects",
+    "C:",
+    "C:Projects",
+    "1:\\Projects",
+    "\\\\server",
+    "\\\\server\\",
+    "\\\\\\share",
+]

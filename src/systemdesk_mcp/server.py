@@ -1,13 +1,9 @@
 """Compose the SystemDesk tools and start the MCP server over stdio."""
 
-from systemdesk_mcp import __version__
+from systemdesk_mcp import __version__, tools  # pylint: disable=unused-import
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.tools import load_tools
 
 __all__ = ["__version__", "mcp", "main"]
-
-
-load_tools()
 
 
 def main() -> None:

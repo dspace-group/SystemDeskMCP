@@ -4,7 +4,11 @@
 import os
 from unittest.mock import MagicMock
 
+import pytest
+from pydantic import ValidationError
+
 from systemdesk_mcp.tools import projects
+from tests.helpers import INVALID_ABSOLUTE_DIRS, VALID_ABSOLUTE_DIRS, validate_args
 
 
 def test_close_project_with_save(app):
@@ -62,3 +66,22 @@ def test_create_project_success(app, tmp_path):
     assert project_dir.is_dir()
     app.CreateProject.assert_called_once_with(expected_project_file)
     created_project.Save.assert_called_once()
+
+
+@pytest.mark.parametrize("project_path", VALID_ABSOLUTE_DIRS)
+def test_create_project_absolute_path_accepted_by_schema(project_path):
+    validate_args(projects.create_project, project_path=project_path, project_name="MyECU")
+
+
+@pytest.mark.parametrize("project_path", INVALID_ABSOLUTE_DIRS)
+def test_create_project_non_absolute_path_rejected_by_schema(project_path):
+    with pytest.raises(ValidationError):
+        validate_args(projects.create_project, project_path=project_path, project_name="MyECU")
+
+
+@pytest.mark.parametrize("project_name", ["", "a/b", "a\\b", "a:b", "a*b", "a?b"])
+def test_create_project_invalid_name_rejected_by_schema(project_name):
+    with pytest.raises(ValidationError):
+        validate_args(
+            projects.create_project, project_path="C:\\Projects", project_name=project_name
+        )

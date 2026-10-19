@@ -84,12 +84,12 @@ To also collect coverage:
 uv run pytest --cov=systemdesk_mcp
 ```
 
-Tests are grouped by responsibility in `tests/test_lifecycle.py`, `tests/test_projects.py`, `tests/test_autosar.py`, `tests/test_schemas.py`, `tests/test_discovery.py`, and `tests/test_server.py`. Shared COM mocking lives in `tests/conftest.py`; schema validation and tool inspection helpers live in `tests/helpers.py`.
+Tool behavior and input-constraint tests live together in the `tests/tools/` package: `test_lifecycle.py`, `test_projects.py`, and `test_autosar.py`. Cross-cutting schema contracts and server integration checks live in `tests/test_server.py`. Shared COM mocking lives in `tests/conftest.py` and applies to the tool tests too; path examples, schema validation, and tool inspection helpers live in `tests/helpers.py`.
 
 To run one group:
 
 ```powershell
-uv run pytest tests/test_autosar.py
+uv run pytest tests/tools/test_autosar.py
 ```
 
 For an end-to-end smoke test against an existing SystemDesk installation, use the prompt in `.github/prompts/smoke-test.prompt.md`.
@@ -106,9 +106,9 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 
 ## Extending the Server
 
-Add a new tool in the appropriate module under `src/systemdesk_mcp/tools/`: `lifecycle.py`, `projects.py`, or `autosar.py`. For a new domain, add a module directly under `tools/`. At startup, `load_tools()` imports public modules in sorted name order, registering their decorated tools automatically. No changes to `server.py` are needed. Restart the server to discover new modules; this is startup discovery, not hot reloading.
+Add a new tool in the appropriate module under `src/systemdesk_mcp/tools/`: `lifecycle.py`, `projects.py`, or `autosar.py`. For a new domain, add a module under `tools/`, then add it to the imports and `__all__` in `tools/__init__.py`. Importing the tools package registers the decorated tools. No changes to `server.py` are needed. Adding a tool to an already imported module requires no registration changes. Restart the server to load changes.
 
-Prefix helper-only modules with `_` to exclude them from discovery. Import failures stop startup rather than silently omitting tools. Tool modules must never import `server.py`. Python callers and tests import tool functions from their owning modules, not from `server.py`.
+Helper-only modules do not need registration imports. Import failures stop startup rather than silently omitting tools. Tool modules must never import `server.py`. Python callers and tests import tool functions from their owning modules, not from `server.py`.
 
 Use the shared `mcp` instance from `mcp_app.py`, COM access and execution helpers from `runtime.py`, and errors, responses, logging, and input constraints from `common.py`. Keep domain-specific helpers alongside their tools.
 
@@ -184,8 +184,8 @@ Notes:
 
 ## File Overview
 
-- `src/systemdesk_mcp/server.py`: automatic tool discovery and stdio entry point
-- `src/systemdesk_mcp/tools/__init__.py`: deterministic discovery of public tool modules
+- `src/systemdesk_mcp/server.py`: imports the tools package and starts the stdio server
+- `src/systemdesk_mcp/tools/__init__.py`: central imports for tool-module registration
 - `src/systemdesk_mcp/mcp_app.py`: shared FastMCP instance and server instructions
 - `src/systemdesk_mcp/runtime.py`: shared COM connection, worker thread, timeouts, and cleanup
 - `src/systemdesk_mcp/common.py`: shared errors, responses, logging, and input constraints

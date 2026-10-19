@@ -3,8 +3,12 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+from pydantic import ValidationError
+
 from systemdesk_mcp import runtime
 from systemdesk_mcp.tools import lifecycle
+from tests.helpers import validate_args
 
 
 def test_start_systemdesk_win32com_missing():
@@ -105,3 +109,8 @@ def test_close_systemdesk_with_save(app):
     active_project.Save.assert_called_once()
     app.Quit.assert_called_once()
     assert runtime._application is None
+
+
+def test_unknown_argument_rejected_by_schema():
+    with pytest.raises(ValidationError):
+        validate_args(lifecycle.close_systemdesk, save_projct=False)
