@@ -6,9 +6,9 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from systemdesk_mcp import runtime
-from systemdesk_mcp.common import ErrorCode, _PermanentError, _error, _logged, _ok
+from systemdesk_mcp.common import ErrorCode, PermanentError, error_response, logged, success_response
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.runtime import _on_com_thread
+from systemdesk_mcp.runtime import on_com_thread
 
 
 @mcp.tool(
@@ -20,8 +20,8 @@ from systemdesk_mcp.runtime import _on_com_thread
     },
     output_schema=None
 )
-@_logged
-@_on_com_thread
+@logged
+@on_com_thread
 def start_systemdesk(
 ) -> dict[str, Any]:
     """
@@ -46,7 +46,7 @@ def start_systemdesk(
     try:
         import win32com.client # pylint: disable=import-outside-toplevel
     except ImportError:
-        return _error(
+        return error_response(
             "win32com is not installed. Install pywin32 to use this tool.",
             error_type="permanent",
             error_code=ErrorCode.WIN32COM_NOT_INSTALLED,
@@ -58,7 +58,7 @@ def start_systemdesk(
     if runtime._application is not None:
         try:
             root_dir = runtime._application.ApplicationRootDir
-            return _ok({
+            return success_response({
                 "prog_id": prog_id,
                 "application_root_dir": root_dir,
                 "message": "SystemDesk is already running. Reusing existing COM connection.",
@@ -70,7 +70,7 @@ def start_systemdesk(
         runtime._application = win32com.client.Dispatch(prog_id)
         runtime._application.BatchMode = True  # suppresses popups for automation
         root_dir = runtime._application.ApplicationRootDir
-        return _ok({
+        return success_response({
             "prog_id": prog_id,
             "application_root_dir": root_dir,
             "message": "SystemDesk started and COM connection established.",
@@ -109,7 +109,7 @@ def start_systemdesk(
             error_type = "transient"
             error_code = ErrorCode.START_FAILED
 
-        return _error(message, error_type=error_type, error_code=error_code, details=exc_str)
+        return error_response(message, error_type=error_type, error_code=error_code, details=exc_str)
 
 
 @mcp.tool(
@@ -121,8 +121,8 @@ def start_systemdesk(
     },
     output_schema=None
 )
-@_logged
-@_on_com_thread
+@logged
+@on_com_thread
 def close_systemdesk(
     save_project: Annotated[bool, Field(
         description=(
@@ -146,7 +146,7 @@ def close_systemdesk(
     - transient / QUIT_FAILED: Quit call failed (returns immediately)
     """
     try:
-        app = runtime._get_app()
+        app = runtime.get_app()
 
         if save_project:
             try:
@@ -154,7 +154,7 @@ def close_systemdesk(
                 if active_project is not None:
                     active_project.Save()
             except Exception as exc:  # pylint: disable=broad-exception-caught
-                return _error(
+                return error_response(
                     "Failed to save project before closing SystemDesk.",
                     error_type="transient",
                     error_code=ErrorCode.PROJECT_SAVE_FAILED,
@@ -163,12 +163,12 @@ def close_systemdesk(
 
         app.Quit()
         runtime._application = None
-        return _ok({"message": "SystemDesk closed successfully."})
+        return success_response({"message": "SystemDesk closed successfully."})
 
-    except _PermanentError as exc:
-        return _error(str(exc), error_type="permanent", error_code=exc.error_code)
+    except PermanentError as exc:
+        return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        return _error(
+        return error_response(
             "Failed to close SystemDesk.",
             error_type="transient",
             error_code=ErrorCode.QUIT_FAILED,
@@ -185,8 +185,8 @@ def close_systemdesk(
     },
     output_schema=None
 )
-@_logged
-@_on_com_thread
+@logged
+@on_com_thread
 def get_systemdesk_status() -> dict[str, Any]:
     """
     Return current SystemDesk status.
@@ -201,7 +201,7 @@ def get_systemdesk_status() -> dict[str, Any]:
     """
 
     if runtime._application is None:
-        return _ok(
+        return success_response(
             {
                 "running": False,
                 "project_open": False,
@@ -213,7 +213,7 @@ def get_systemdesk_status() -> dict[str, Any]:
     try:
         active_project = runtime._application.ActiveProject
         if active_project is None:
-            return _ok(
+            return success_response(
                 {
                     "running": True,
                     "project_open": False,
@@ -222,7 +222,7 @@ def get_systemdesk_status() -> dict[str, Any]:
                 }
             )
 
-        return _ok(
+        return success_response(
             {
                 "running": True,
                 "project_open": True,
@@ -233,7 +233,7 @@ def get_systemdesk_status() -> dict[str, Any]:
     except Exception:  # pylint: disable=broad-exception-caught
         # Stale COM proxy or process closed unexpectedly.
         runtime._application = None
-        return _ok(
+        return success_response(
             {
                 "running": False,
                 "project_open": False,

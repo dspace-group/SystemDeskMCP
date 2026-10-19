@@ -8,15 +8,15 @@ from pydantic import Field
 
 from systemdesk_mcp.common import (
     ErrorCode,
-    _ARXML_PATTERN,
-    _PermanentError,
-    _TimeoutSeconds,
-    _error,
-    _logged,
-    _ok,
+    ARXML_PATTERN,
+    PermanentError,
+    TimeoutSeconds,
+    error_response,
+    logged,
+    success_response,
 )
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.runtime import _get_app, _on_com_thread
+from systemdesk_mcp.runtime import get_app, on_com_thread
 
 
 class ValidateOutputFormat(str, Enum):
@@ -36,18 +36,18 @@ class ValidateOutputFormat(str, Enum):
     },
     output_schema=None
 )
-@_logged
-@_on_com_thread
+@logged
+@on_com_thread
 def import_autosar_file(
     file_path: Annotated[str, Field(
         min_length=1,
-        pattern=_ARXML_PATTERN,
+        pattern=ARXML_PATTERN,
         description=(
             "Absolute local or UNC path to the AUTOSAR file (.arxml) to import. "
             "Example: 'C:\\Projects\\MyECU\\SoftwareComponent.arxml'"
         ),
     )],
-    timeout: Annotated[_TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @_on_com_thread
+    timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
         description="Maximum number of seconds to wait for the import to complete. Example: 60",
     )] = 60,
 ) -> dict[str, Any]:
@@ -70,17 +70,17 @@ def import_autosar_file(
     - transient / IMPORT_FAILED: import call failed
     """
     try:
-        app = _get_app()
+        app = get_app()
 
         if not os.path.isfile(file_path):
-            raise _PermanentError(
+            raise PermanentError(
                 f"File not found: '{file_path}'. "
                 "Provide an absolute path to an existing .arxml file.",
                 error_code=ErrorCode.FILE_NOT_FOUND)
 
         active_project = app.ActiveProject
         if active_project is None:
-            raise _PermanentError(
+            raise PermanentError(
                 "No project is currently open. "
                 "Call create_project or open a project first.",
                 error_code=ErrorCode.NO_PROJECT_OPEN)
@@ -93,19 +93,19 @@ def import_autosar_file(
         import_export_file.ShowImportDialog = False
 
         # Now import the file. Runs on the dedicated COM apartment thread;
-        # the timeout is enforced by the @_on_com_thread decorator.
+        # the timeout is enforced by the @on_com_thread decorator.
         result = import_export_file.Import()
         if not result:
             import_export_file.Delete()
 
-            return _error(
+            return error_response(
                 f"Failed to import AUTOSAR file '{file_path}'.",
                 error_type="permanent",
                 error_code=ErrorCode.IMPORT_REJECTED,
                 details=_get_import_autosar_file_error_details(),
             )
 
-        return _ok({
+        return success_response({
             "imported_file": file_path,
             "message": (
                 f"AUTOSAR file '{os.path.basename(file_path)}' imported successfully. "
@@ -113,10 +113,10 @@ def import_autosar_file(
             ),
         })
 
-    except _PermanentError as exc:
-        return _error(str(exc), error_type="permanent", error_code=exc.error_code)
+    except PermanentError as exc:
+        return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        return _error(
+        return error_response(
             f"Failed to import AUTOSAR file '{file_path}'.",
             error_type="transient",
             error_code=ErrorCode.IMPORT_FAILED,
@@ -124,7 +124,7 @@ def import_autosar_file(
         )
 
 def _get_import_autosar_file_error_details() -> str:
-    app = _get_app()
+    app = get_app()
     last_message = app.Messages.Elements[-1]
     if last_message.MessageIdentifier != 'Info(93,600,17)': # ID of "Preparing import" message, stable across SystemDesk versions
         return "Unknown error"
@@ -148,8 +148,8 @@ def _dump_message(message, indent=0) -> Iterable[str]:
     },
     output_schema=None
 )
-@_logged
-@_on_com_thread
+@logged
+@on_com_thread
 def validate_autosar(
     output_format: Annotated[ValidateOutputFormat, Field(
         description=(
@@ -158,7 +158,7 @@ def validate_autosar(
             "Example: 'markdown'"
         ),
     )] = ValidateOutputFormat.MARKDOWN,
-    timeout: Annotated[_TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @_on_com_thread
+    timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
         description="Maximum number of seconds to wait for validation to complete. Example: 120",
     )] = 120,
 ) -> dict[str, Any]:
@@ -177,16 +177,16 @@ def validate_autosar(
     - transient / VALIDATION_FAILED: validation call failed
     """
     try:
-        app = _get_app()
+        app = get_app()
 
         active_project = app.ActiveProject
         if active_project is None:
-            raise _PermanentError(
+            raise PermanentError(
                 "No project is currently open. Call create_project or open a project first.",
                 error_code=ErrorCode.NO_PROJECT_OPEN)
 
         # Validation runs on the dedicated COM apartment thread; the timeout
-        # is enforced by the @_on_com_thread decorator.
+        # is enforced by the @on_com_thread decorator.
         active_project.Validate.Do()
 
         rule_results = []
@@ -225,24 +225,24 @@ def validate_autosar(
             else:
                 lines.append("✅ No validation issues found.")
 
-            return _ok({
+            return success_response({
                 "error_count": error_count,
                 "warning_count": warning_count,
                 "total_count": len(rule_results),
                 "report": "\n".join(lines),
             })
 
-        return _ok({
+        return success_response({
             "error_count": error_count,
             "warning_count": warning_count,
             "total_count": len(rule_results),
             "messages": rule_results,
         })
 
-    except _PermanentError as exc:
-        return _error(str(exc), error_type="permanent", error_code=exc.error_code)
+    except PermanentError as exc:
+        return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        return _error(
+        return error_response(
             "Failed to validate the project.",
             error_type="transient",
             error_code=ErrorCode.VALIDATION_FAILED,

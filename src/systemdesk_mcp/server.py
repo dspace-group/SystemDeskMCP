@@ -2,31 +2,12 @@
 
 from systemdesk_mcp import __version__
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.tools.lifecycle import (
-    start_systemdesk,
-    close_systemdesk,
-    get_systemdesk_status,
-)
-from systemdesk_mcp.tools.projects import create_project, close_project
-from systemdesk_mcp.tools.autosar import (
-    import_autosar_file,
-    validate_autosar,
-    ValidateOutputFormat,
-)
+from systemdesk_mcp.tools import load_tools
 
-__all__ = [
-    "__version__",
-    "mcp",
-    "start_systemdesk",
-    "close_systemdesk",
-    "get_systemdesk_status",
-    "create_project",
-    "close_project",
-    "import_autosar_file",
-    "validate_autosar",
-    "ValidateOutputFormat",
-    "main",
-]
+__all__ = ["__version__", "mcp", "main"]
+
+
+load_tools()
 
 
 def main() -> None:

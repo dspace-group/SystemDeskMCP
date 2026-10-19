@@ -84,6 +84,14 @@ To also collect coverage:
 uv run pytest --cov=systemdesk_mcp
 ```
 
+Tests are grouped by responsibility in `tests/test_lifecycle.py`, `tests/test_projects.py`, `tests/test_autosar.py`, `tests/test_schemas.py`, `tests/test_discovery.py`, and `tests/test_server.py`. Shared COM mocking lives in `tests/conftest.py`; schema validation and tool inspection helpers live in `tests/helpers.py`.
+
+To run one group:
+
+```powershell
+uv run pytest tests/test_autosar.py
+```
+
 For an end-to-end smoke test against an existing SystemDesk installation, use the prompt in `.github/prompts/smoke-test.prompt.md`.
 
 ## Available MCP Tools
@@ -98,11 +106,13 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 
 ## Extending the Server
 
-Add a new tool in the appropriate module under `src/systemdesk_mcp/tools/`: `lifecycle.py`, `projects.py`, or `autosar.py`. Import and re-export the tool in `server.py` to register it at startup. For a new domain, add a module under `tools/` and import its tools in the same way. Tool modules must never import `server.py`.
+Add a new tool in the appropriate module under `src/systemdesk_mcp/tools/`: `lifecycle.py`, `projects.py`, or `autosar.py`. For a new domain, add a module directly under `tools/`. At startup, `load_tools()` imports public modules in sorted name order, registering their decorated tools automatically. No changes to `server.py` are needed. Restart the server to discover new modules; this is startup discovery, not hot reloading.
+
+Prefix helper-only modules with `_` to exclude them from discovery. Import failures stop startup rather than silently omitting tools. Tool modules must never import `server.py`. Python callers and tests import tool functions from their owning modules, not from `server.py`.
 
 Use the shared `mcp` instance from `mcp_app.py`, COM access and execution helpers from `runtime.py`, and errors, responses, logging, and input constraints from `common.py`. Keep domain-specific helpers alongside their tools.
 
-Declare each input as a flat function parameter typed `Annotated[<type>, Field(...)]`: the type, constraints, and description (with an `Example:`) live in the `Field`, the default in the signature. This is the single definition; FastMCP derives the JSON schema (including `additionalProperties: false`) and validates calls from it. Constraints shared across tools are defined once as `Annotated` aliases (e.g. `_TimeoutSeconds`) and combined with a tool-specific description. Tools without inputs take no parameters.
+Declare each input as a flat function parameter typed `Annotated[<type>, Field(...)]`: the type, constraints, and description (with an `Example:`) live in the `Field`, the default in the signature. This is the single definition; FastMCP derives the JSON schema (including `additionalProperties: false`) and validates calls from it. Constraints shared across tools are defined once as `Annotated` aliases (e.g. `TimeoutSeconds`) and combined with a tool-specific description. Tools without inputs take no parameters.
 
 ```python
 from typing import Annotated, Any
@@ -110,10 +120,10 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from systemdesk_mcp.common import (
-    ErrorCode, _PermanentError, _TimeoutSeconds, _error, _logged, _ok,
+    ErrorCode, PermanentError, TimeoutSeconds, error_response, logged, success_response,
 )
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.runtime import _get_app, _on_com_thread
+from systemdesk_mcp.runtime import get_app, on_com_thread
 
 
 @mcp.tool(
@@ -125,26 +135,26 @@ from systemdesk_mcp.runtime import _get_app, _on_com_thread
     },
     output_schema=None,
 )
-@_logged
-@_on_com_thread
+@logged
+@on_com_thread
 def my_new_tool(
     element_path: Annotated[str, Field(
         min_length=1,
         description="AUTOSAR path of the element. Example: '/Package/MyElement'",
     )],
-    timeout: Annotated[_TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @_on_com_thread
+    timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
         description="Maximum number of seconds to wait. Example: 60",
     )] = 60,
 ) -> dict[str, Any]:
     """Description shown to the MCP client."""
     try:
-        app = _get_app()  # active COM connection
+        app = get_app()  # active COM connection
         # ... call app.* COM methods using element_path ...
-        return _ok({"message": "Done."})
-    except _PermanentError as exc:
-        return _error(str(exc), error_type="permanent", error_code=exc.error_code)
+        return success_response({"message": "Done."})
+    except PermanentError as exc:
+        return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        return _error(
+        return error_response(
             "my_new_tool failed.",
             error_type="transient",
             error_code=ErrorCode.MY_NEW_TOOL_FAILED,
@@ -155,13 +165,13 @@ def my_new_tool(
 Notes:
 
 - Keep the decorators exactly in the order shown, with no others (checked by tests). Set all four annotations.
-- Use `_get_app()` to access the live SystemDesk COM object. Never touch COM objects outside the dedicated COM thread.
+- Use `get_app()` to access the live SystemDesk COM object. Never touch COM objects outside the dedicated COM thread.
 - `runtime.py` is the sole owner of the COM connection and executor. Lifecycle tools update `runtime._application` through the module, never a separately imported `_application` binding.
-- `@_on_com_thread` runs the tool on the dedicated COM thread. If the operation can block, add a `timeout` parameter as shown; it is used as the call timeout.
-- `@_logged` writes a structured log entry for every call.
-- Validate file paths with the existing `_*_PATTERN` regexes; only absolute local or UNC paths are accepted.
-- Return `_ok(...)` or `_error(...)` so that every tool has the same `status` / `error_type` / `error_code` response format. Use `error_type="permanent"` (via `_PermanentError`) for non-retryable failures and `"transient"` for the generic `except Exception` fallback.
-- Use a stable UPPER_SNAKE_CASE `error_code` per failure condition: add it as a member of the `ErrorCode` enum (e.g. `MY_NEW_TOOL_FAILED = "MY_NEW_TOOL_FAILED"`), pass `ErrorCode.<MEMBER>` to `_error(...)` or `_PermanentError(message, error_code=...)`, and list it in the tool's "Failure codes" docstring section. Never rename or remove existing codes; clients depend on them.
+- `@on_com_thread` runs the tool on the dedicated COM thread. If the operation can block, add a `timeout` parameter as shown; it is used as the call timeout.
+- `@logged` writes a structured log entry for every call.
+- Validate file paths with the existing `*_PATTERN` regexes; only absolute local or UNC paths are accepted.
+- Return `success_response(...)` or `error_response(...)` so that every tool has the same `status` / `error_type` / `error_code` response format. Use `error_type="permanent"` (via `PermanentError`) for non-retryable failures and `"transient"` for the generic `except Exception` fallback.
+- Use a stable UPPER_SNAKE_CASE `error_code` per failure condition: add it as a member of the `ErrorCode` enum (e.g. `MY_NEW_TOOL_FAILED = "MY_NEW_TOOL_FAILED"`), pass `ErrorCode.<MEMBER>` to `error_response(...)` or `PermanentError(message, error_code=...)`, and list it in the tool's "Failure codes" docstring section. Never rename or remove existing codes; clients depend on them.
 - Document in the docstring: purpose, preconditions, return fields, and a `Failure codes (error_type / error_code: condition):` section listing every code the tool can return.
 - Update [Usage (Tool Order)](#usage-tool-order), [Available MCP Tools](#available-mcp-tools), and, if relevant, the `instructions` string passed to `FastMCP(...)`.
 
@@ -174,7 +184,8 @@ Notes:
 
 ## File Overview
 
-- `src/systemdesk_mcp/server.py`: tool registration, compatibility exports, and stdio entry point
+- `src/systemdesk_mcp/server.py`: automatic tool discovery and stdio entry point
+- `src/systemdesk_mcp/tools/__init__.py`: deterministic discovery of public tool modules
 - `src/systemdesk_mcp/mcp_app.py`: shared FastMCP instance and server instructions
 - `src/systemdesk_mcp/runtime.py`: shared COM connection, worker thread, timeouts, and cleanup
 - `src/systemdesk_mcp/common.py`: shared errors, responses, logging, and input constraints

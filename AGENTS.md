@@ -4,12 +4,14 @@ Python MCP server (FastMCP, stdio) that automates dSPACE SystemDesk via its COM 
 
 ## Layout
 
-- [src/systemdesk_mcp/server.py](src/systemdesk_mcp/server.py): tool registration, compatibility exports, and stdio entry point.
+- [src/systemdesk_mcp/server.py](src/systemdesk_mcp/server.py): automatic tool discovery and stdio entry point.
 - [src/systemdesk_mcp/mcp_app.py](src/systemdesk_mcp/mcp_app.py): shared FastMCP instance and instructions.
 - [src/systemdesk_mcp/runtime.py](src/systemdesk_mcp/runtime.py): sole owner of COM state, worker thread, timeouts, and cleanup.
 - [src/systemdesk_mcp/common.py](src/systemdesk_mcp/common.py): shared errors, responses, logging, and input constraints.
 - [src/systemdesk_mcp/tools/](src/systemdesk_mcp/tools/): lifecycle, project, and AUTOSAR tool implementations. Domain helpers stay alongside their tools; tool modules never import `server.py`.
-- [tests/](tests/): unit tests; COM is mocked, no SystemDesk needed.
+- [tests/](tests/): tests grouped by lifecycle, projects, AUTOSAR, schemas, discovery, and server integration; COM is mocked, no SystemDesk needed.
+- [tests/conftest.py](tests/conftest.py): shared autouse COM application fixture with automatic state restoration.
+- [tests/helpers.py](tests/helpers.py): shared argument validation and registered-tool inspection helpers.
 - [.github/prompts/smoke-test.prompt.md](.github/prompts/smoke-test.prompt.md): end-to-end smoke test against a real SystemDesk installation (requires a license).
 
 ## Commands
@@ -27,13 +29,16 @@ uv run pytest --cov=systemdesk_mcp
 
 When adding or changing a tool, follow [Extending the Server](README.md#extending-the-server) in the README.
 
+Public modules directly under `tools/` are imported automatically at startup. No server imports or re-exports are needed for new tools. Prefix helper-only modules with `_`. Shared helpers and constraints have public names; module implementation details remain underscore-prefixed.
+
 ## Testing conventions
 
 - Arrange / act / assert structure with comments.
 - Use the autouse `app` fixture (a `MagicMock` installed as `runtime._application`); set `runtime._application = None` to simulate "not started".
-- Call tools directly with keyword arguments, e.g. `srv.validate_autosar(output_format=srv.ValidateOutputFormat.JSON)`. Direct calls skip Pydantic validation.
+- Import tools from their owning modules and call them directly with keyword arguments, e.g. `autosar.validate_autosar(output_format=autosar.ValidateOutputFormat.JSON)`. Direct calls skip Pydantic validation.
 - Assert on `status`, `error_type`, and `error_code`, not just messages.
-- Add schema tests for new input constraints with `pytest.raises(ValidationError)` around `_validate_args(srv.<tool>, ...)`.
+- Add schema tests in `tests/test_schemas.py` for new input constraints with `pytest.raises(ValidationError)` around `validate_args(<module>.<tool>, ...)`, imported from `tests.helpers`.
+- Add behavior tests to the owning domain's test module. Keep cross-module workflows and MCP calls in `tests/test_server.py`, and tool-loading checks in `tests/test_discovery.py`. Never import helpers from another test module or directly from `conftest.py`.
 - Use `tmp_path` for any files; do not write outside it.
 
 ## Gotchas

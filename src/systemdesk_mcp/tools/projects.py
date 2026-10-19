@@ -7,15 +7,15 @@ from pydantic import Field
 
 from systemdesk_mcp.common import (
     ErrorCode,
-    _ABSOLUTE_PATH_PATTERN,
-    _FILE_NAME_PATTERN,
-    _PermanentError,
-    _error,
-    _logged,
-    _ok,
+    ABSOLUTE_PATH_PATTERN,
+    FILE_NAME_PATTERN,
+    PermanentError,
+    error_response,
+    logged,
+    success_response,
 )
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.runtime import _get_app, _on_com_thread
+from systemdesk_mcp.runtime import get_app, on_com_thread
 
 
 @mcp.tool(
@@ -27,12 +27,12 @@ from systemdesk_mcp.runtime import _get_app, _on_com_thread
     },
     output_schema=None
 )
-@_logged
-@_on_com_thread
+@logged
+@on_com_thread
 def create_project(
     project_path: Annotated[str, Field(
         min_length=1,
-        pattern=_ABSOLUTE_PATH_PATTERN,
+        pattern=ABSOLUTE_PATH_PATTERN,
         description=(
             "Absolute local or UNC path to the directory where the project file will be created. "
             "Example: 'C:\\Projects\\MyECU'"
@@ -40,7 +40,7 @@ def create_project(
     )],
     project_name: Annotated[str, Field(
         min_length=1,
-        pattern=_FILE_NAME_PATTERN,
+        pattern=FILE_NAME_PATTERN,
         description=(
             "Name of the new SystemDesk project (without file extension). "
             "Must not contain path separators or any of <>:\"/\\|?*. "
@@ -65,7 +65,7 @@ def create_project(
     - transient / PROJECT_CREATION_FAILED: project creation or save failed
     """
     try:
-        app = _get_app()
+        app = get_app()
 
         project_file = os.path.join(project_path, f"{project_name}.sdp")
 
@@ -74,16 +74,16 @@ def create_project(
         project = app.CreateProject(project_file)
         project.Save()
 
-        return _ok({
+        return success_response({
             "project_name": project_name,
             "project_file": project_file,
             "message": f"Project '{project_name}' created successfully.",
         })
 
-    except _PermanentError as exc:
-        return _error(str(exc), error_type="permanent", error_code=exc.error_code)
+    except PermanentError as exc:
+        return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        return _error(
+        return error_response(
             f"Failed to create project '{project_name}'.",
             error_type="transient",
             error_code=ErrorCode.PROJECT_CREATION_FAILED,
@@ -100,8 +100,8 @@ def create_project(
     },
     output_schema=None
 )
-@_logged
-@_on_com_thread
+@logged
+@on_com_thread
 def close_project(
     save_project: Annotated[bool, Field(
         description="If True, saves the project before closing it. Example: True",
@@ -123,11 +123,11 @@ def close_project(
     - transient / PROJECT_CLOSE_FAILED: close or save call failed
     """
     try:
-        app = _get_app()
+        app = get_app()
         active_project = app.ActiveProject
 
         if active_project is None:
-            return _ok({"message": "No project is currently open."})
+            return success_response({"message": "No project is currently open."})
 
         project_name = active_project.Name
 
@@ -136,16 +136,16 @@ def close_project(
 
         active_project.Close(False)
 
-        return _ok({
+        return success_response({
             "project_name": project_name,
             "saved": save_project,
             "message": f"Project '{project_name}' closed successfully.",
         })
 
-    except _PermanentError as exc:
-        return _error(str(exc), error_type="permanent", error_code=exc.error_code)
+    except PermanentError as exc:
+        return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        return _error(
+        return error_response(
             "Failed to close the project.",
             error_type="transient",
             error_code=ErrorCode.PROJECT_CLOSE_FAILED,

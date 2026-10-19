@@ -35,7 +35,7 @@ class ErrorCode(str, Enum):
     VALIDATION_FAILED = "VALIDATION_FAILED"
 
 
-class _PermanentError(Exception):
+class PermanentError(Exception):
     """Signals a permanent (non-retryable) failure."""
 
     def __init__(self, message: str, error_code: ErrorCode):
@@ -43,20 +43,22 @@ class _PermanentError(Exception):
         self.error_code = error_code
 
 
-class _TransientError(Exception):
+class TransientError(Exception):
     """Signals a transient (retryable) failure."""
 
 
-def _ok(data: dict[str, Any]) -> dict[str, Any]:
+def success_response(data: dict[str, Any]) -> dict[str, Any]:
+    """Build a successful tool response with the supplied result fields."""
     return {"status": "success", **data}
 
 
-def _error(
+def error_response(
     message: str,
     error_type: str,
     error_code: ErrorCode,
     details: Optional[str] = None,
 ) -> dict[str, Any]:
+    """Build a tool error response with a stable code and optional details."""
     payload = {
         "status": "error",
         "error_type": error_type,
@@ -72,7 +74,7 @@ _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
-def _logged(fn):
+def logged(fn):
     """Emit a structured JSON log entry for every tool invocation."""
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
@@ -103,8 +105,8 @@ def _logged(fn):
 
 
 _ABSOLUTE_PATH_PREFIX = r"^(?:[a-zA-Z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+)"
-_ABSOLUTE_PATH_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*$"
-_ARXML_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*\.[aA][rR][xX][mM][lL]$"
-_FILE_NAME_PATTERN = r'^[^<>:"/\\|?*\x00-\x1F]+$'
-_MAX_TIMEOUT_SECONDS = 3600
-_TimeoutSeconds = Annotated[int, Field(ge=1, le=_MAX_TIMEOUT_SECONDS)]
+ABSOLUTE_PATH_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*$"
+ARXML_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*\.[aA][rR][xX][mM][lL]$"
+FILE_NAME_PATTERN = r'^[^<>:"/\\|?*\x00-\x1F]+$'
+MAX_TIMEOUT_SECONDS = 3600
+TimeoutSeconds = Annotated[int, Field(ge=1, le=MAX_TIMEOUT_SECONDS)]

@@ -7,15 +7,15 @@ import inspect
 
 import pythoncom
 
-from systemdesk_mcp.common import ErrorCode, _PermanentError, _error
+from systemdesk_mcp.common import ErrorCode, PermanentError, error_response
 
 _application = None  # pylint: disable=invalid-name
 
 
-def _get_app():
+def get_app():
     """Return the active SystemDesk COM connection or raise a permanent error."""
     if _application is None:
-        raise _PermanentError(
+        raise PermanentError(
             "SystemDesk is not running. Call start_systemdesk first.",
             error_code=ErrorCode.SYSTEMDESK_NOT_RUNNING,
         )
@@ -46,7 +46,7 @@ def _shutdown_com_executor():
     _com_executor.shutdown(wait=False)
 
 
-def _on_com_thread(fn):
+def on_com_thread(fn):
     """Run COM work on one worker; a timeout does not cancel the queued call."""
     signature = inspect.signature(fn)
 
@@ -59,7 +59,7 @@ def _on_com_thread(fn):
         try:
             return future.result(timeout=timeout)
         except concurrent.futures.TimeoutError:
-            return _error(
+            return error_response(
                 f"Operation '{fn.__name__}' timed out"
                 + (f" after {timeout}s." if timeout else ".")
                 + " SystemDesk may still be processing the request.",
