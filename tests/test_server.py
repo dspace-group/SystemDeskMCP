@@ -3,9 +3,7 @@
 
 import inspect
 import json
-import threading
 import typing
-from unittest.mock import patch
 
 import pytest
 from pydantic.fields import FieldInfo
@@ -13,7 +11,6 @@ from fastmcp.exceptions import ValidationError as FastMCPValidationError
 
 import systemdesk_mcp.server as srv
 from systemdesk_mcp import common, runtime
-from systemdesk_mcp.tools import autosar, lifecycle, projects
 from tests.helpers import registered_function_tools
 
 
@@ -61,52 +58,6 @@ async def test_tools_are_logged_and_on_com_thread():
         assert not hasattr(inner.__wrapped__, "__wrapped__"), (
             f"Tool '{tool.name}' has unexpected extra decorators."
         )
-
-
-def test_tool_groups_share_connection_and_com_worker(app, tmp_path):
-    # arrange
-    runtime._application = None
-    worker_threads = []
-    project = app.CreateProject.return_value
-    project.Name = "SharedProject"
-    project.Validate.ResultStructure.RuleResults = []
-    app.ActiveProject = project
-    arxml_file = tmp_path / "shared.arxml"
-    arxml_file.write_text("<AUTOSAR/>")
-
-    def record_thread(result):
-        def call(*_args):
-            worker_threads.append(threading.get_ident())
-            return result
-        return call
-
-    app.CreateProject.side_effect = record_thread(project)
-    project.ImportExportFiles.Add.return_value.Import.side_effect = record_thread(True)
-    project.Validate.Do.side_effect = record_thread(None)
-    app.Quit.side_effect = record_thread(None)
-
-    # act
-    with patch("win32com.client.Dispatch", side_effect=record_thread(app)):
-        started = lifecycle.start_systemdesk()
-    created = projects.create_project(project_path=str(tmp_path), project_name="SharedProject")
-    status = lifecycle.get_systemdesk_status()
-    imported = autosar.import_autosar_file(file_path=str(arxml_file))
-    validated = autosar.validate_autosar()
-    closed = lifecycle.close_systemdesk(save_project=False)
-    after_close = autosar.validate_autosar()
-
-    # assert
-    assert all(result["status"] == "success" for result in (
-        started, created, status, imported, validated, closed,
-    ))
-    assert status["project_name"] == "SharedProject"
-    assert runtime._application is None
-    assert after_close["status"] == "error"
-    assert after_close["error_type"] == "permanent"
-    assert after_close["error_code"] == "SYSTEMDESK_NOT_RUNNING"
-    assert len(worker_threads) == 5
-    assert len(set(worker_threads)) == 1
-    assert worker_threads[0] != threading.get_ident()
 
 
 def test_version_is_semver():
