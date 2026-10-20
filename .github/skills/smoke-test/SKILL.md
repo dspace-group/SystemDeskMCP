@@ -1,9 +1,8 @@
 ---
 name: smoke-test
-agent: agent
 description: End-to-end smoke test for the SystemDesk MCP server.
+disable-model-invocation: true
 ---
-
 # Goal
 
 Use the SystemDesk MCP Server to perform an end-to-end smoke test, ensuring that the core functionalities are working as expected.

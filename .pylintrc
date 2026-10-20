@@ -1,5 +1,8 @@
 [MAIN]
 ignore-patterns=^\.venv/.*,^\.git/.*
 
+[BASIC]
+no-docstring-rgx=^(_|test_)
+
 [FORMAT]
 max-line-length=160
