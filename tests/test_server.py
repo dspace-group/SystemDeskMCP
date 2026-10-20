@@ -10,7 +10,7 @@ from pydantic.fields import FieldInfo
 from fastmcp.exceptions import ValidationError as FastMCPValidationError
 
 import systemdesk_mcp.server as srv
-from systemdesk_mcp import common, runtime
+from systemdesk_mcp import runtime
 from tests.helpers import registered_function_tools
 
 
@@ -41,7 +41,7 @@ async def test_server_enforces_field_constraint_before_tool_runs(app):
 @pytest.mark.anyio
 async def test_tools_are_logged_and_on_com_thread():
     # Every wrapper produced by a decorator shares that decorator's inner code object.
-    logged_code = common.logged(lambda: None).__code__
+    logged_code = runtime.logged(lambda: None).__code__
     com_thread_code = runtime.on_com_thread(lambda: None).__code__
 
     tools = await registered_function_tools(srv.mcp)

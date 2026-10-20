@@ -110,7 +110,7 @@ Add a new tool in the appropriate module under `src/systemdesk_mcp/tools/`: `lif
 
 Helper-only modules do not need registration imports. Import failures stop startup rather than silently omitting tools. Tool modules must never import `server.py`. Python callers and tests import tool functions from their owning modules, not from `server.py`.
 
-Use the shared `mcp` instance from `mcp_app.py`, COM access and execution helpers from `runtime.py`, and errors, responses, logging, and input constraints from `common.py`. Keep domain-specific helpers alongside their tools.
+Use the shared `mcp` instance from `mcp_app.py`, COM access, execution, and logging helpers from `runtime.py`, and errors, responses, and input constraints from `common.py`. Keep domain-specific helpers alongside their tools.
 
 Declare each input as a flat function parameter typed `Annotated[<type>, Field(...)]`: the type, constraints, and description (with an `Example:`) live in the `Field`, the default in the signature. This is the single definition; FastMCP derives the JSON schema (including `additionalProperties: false`) and validates calls from it. Constraints shared across tools are defined once as `Annotated` aliases (e.g. `TimeoutSeconds`) and combined with a tool-specific description. Tools without inputs take no parameters.
 
@@ -120,10 +120,10 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from systemdesk_mcp.common import (
-    ErrorCode, PermanentError, TimeoutSeconds, error_response, logged, success_response,
+    ErrorCode, PermanentError, TimeoutSeconds, error_response, success_response,
 )
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.runtime import get_app, on_com_thread
+from systemdesk_mcp.runtime import get_app, logged, on_com_thread
 
 
 @mcp.tool(
@@ -187,8 +187,8 @@ Notes:
 - `src/systemdesk_mcp/server.py`: imports the tools package and starts the stdio server
 - `src/systemdesk_mcp/tools/__init__.py`: central imports for tool-module registration
 - `src/systemdesk_mcp/mcp_app.py`: shared FastMCP instance and server instructions
-- `src/systemdesk_mcp/runtime.py`: shared COM connection, worker thread, timeouts, and cleanup
-- `src/systemdesk_mcp/common.py`: shared errors, responses, logging, and input constraints
+- `src/systemdesk_mcp/runtime.py`: shared COM connection, worker thread, timeouts, cleanup, and tool logging
+- `src/systemdesk_mcp/common.py`: shared errors, responses, and input constraints
 - `src/systemdesk_mcp/tools/`: lifecycle, project, and AUTOSAR tool implementations
 - `src/systemdesk_mcp/__init__.py`: package version
 - `tests/`: unit tests and ARXML test fixtures

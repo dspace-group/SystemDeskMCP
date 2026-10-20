@@ -11,11 +11,10 @@ from systemdesk_mcp.common import (
     FILE_NAME_PATTERN,
     PermanentError,
     error_response,
-    logged,
     success_response,
 )
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.runtime import get_app, on_com_thread
+from systemdesk_mcp.runtime import get_app, logged, on_com_thread
 
 
 @mcp.tool(

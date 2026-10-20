@@ -6,9 +6,9 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from systemdesk_mcp import runtime
-from systemdesk_mcp.common import ErrorCode, PermanentError, error_response, logged, success_response
+from systemdesk_mcp.common import ErrorCode, PermanentError, error_response, success_response
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.runtime import on_com_thread
+from systemdesk_mcp.runtime import logged, on_com_thread
 
 
 @mcp.tool(
