@@ -8,10 +8,21 @@ import typing
 import pytest
 from pydantic.fields import FieldInfo
 from fastmcp.exceptions import ValidationError as FastMCPValidationError
+from fastmcp.tools import FunctionTool
 
 import systemdesk_mcp.server as srv
 from systemdesk_mcp import runtime
-from tests.helpers import registered_function_tools
+
+
+async def _registered_function_tools(mcp):
+    """Return registered tools after checking they can be inspected as functions."""
+    tools = await mcp.list_tools()
+    assert tools
+    for tool in tools:
+        assert isinstance(tool, FunctionTool), (
+            f"Tool '{tool.name}' is not a FunctionTool and cannot be inspected."
+        )
+    return tools
 
 
 @pytest.mark.anyio
@@ -44,7 +55,7 @@ async def test_tools_are_logged_and_on_com_thread():
     logged_code = runtime.logged(lambda: None).__code__
     com_thread_code = runtime.on_com_thread(lambda: None).__code__
 
-    tools = await registered_function_tools(srv.mcp)
+    tools = await _registered_function_tools(srv.mcp)
 
     for tool in tools:
         outer = tool.fn
@@ -60,15 +71,9 @@ async def test_tools_are_logged_and_on_com_thread():
         )
 
 
-def test_version_is_semver():
-    parts = srv.__version__.split(".")
-    assert len(parts) == 3
-    assert all(p.isdigit() for p in parts)
-
-
 @pytest.mark.anyio
 async def test_tool_parameters_are_described_and_strict():
-    tools = await registered_function_tools(srv.mcp)
+    tools = await _registered_function_tools(srv.mcp)
 
     for tool in tools:
         assert tool.parameters.get("additionalProperties") is False, (
@@ -86,3 +91,9 @@ async def test_tool_parameters_are_described_and_strict():
             assert "Example:" in prop.get("description", ""), (
                 f"Tool '{tool.name}': parameter '{name}' needs a description with an example."
             )
+
+
+def test_version_is_semver():
+    parts = srv.__version__.split(".")
+    assert len(parts) == 3
+    assert all(p.isdigit() for p in parts)
