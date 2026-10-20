@@ -1,5 +1,5 @@
 """Tests for lifecycle behavior."""
-# pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
+# pylint: disable=protected-access
 
 from unittest.mock import MagicMock, patch
 

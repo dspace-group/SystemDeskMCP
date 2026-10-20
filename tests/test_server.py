@@ -1,5 +1,5 @@
 """Tests for server behavior."""
-# pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
+# pylint: disable=protected-access
 
 import inspect
 import json

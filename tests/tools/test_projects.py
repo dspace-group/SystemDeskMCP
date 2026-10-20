@@ -1,5 +1,4 @@
 """Tests for projects behavior."""
-# pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
 import os
 from unittest.mock import MagicMock

@@ -1,5 +1,4 @@
 """Tests for autosar behavior."""
-# pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
 from unittest.mock import MagicMock
 
