@@ -8,9 +8,9 @@ Python MCP server (FastMCP, stdio) that automates dSPACE SystemDesk via its COM 
 - [src/systemdesk_mcp/mcp_app.py](src/systemdesk_mcp/mcp_app.py): shared FastMCP instance and instructions.
 - [src/systemdesk_mcp/runtime.py](src/systemdesk_mcp/runtime.py): sole owner of COM state, worker thread, timeouts, and cleanup; also provides tool invocation logging.
 - [src/systemdesk_mcp/common.py](src/systemdesk_mcp/common.py): shared errors, responses, and input constraints.
-- [src/systemdesk_mcp/tools/](src/systemdesk_mcp/tools/): lifecycle, project, and AUTOSAR tool implementations. Domain helpers stay alongside their tools; tool modules never import `server.py`.
+- [src/systemdesk_mcp/tools/](src/systemdesk_mcp/tools/): domain-specific tool implementations. Domain helpers stay alongside their tools; tool modules never import `server.py`.
 - [tests/](tests/): tool behavior and constraint tests and server integration contracts; COM is mocked, no SystemDesk needed.
-- [tests/tools/](tests/tools/): package for lifecycle, project, and AUTOSAR tool behavior tests; inherits the parent COM fixture.
+- [tests/tools/](tests/tools/): package for domain-specific tool behavior tests; inherits the parent COM fixture.
 - [tests/conftest.py](tests/conftest.py): shared autouse COM application fixture with automatic state restoration.
 - [tests/helpers.py](tests/helpers.py): shared argument validation helpers.
 - [.github/prompts/smoke-test.prompt.md](.github/prompts/smoke-test.prompt.md): end-to-end smoke test against a real SystemDesk installation (requires a license).

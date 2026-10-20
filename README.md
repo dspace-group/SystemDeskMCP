@@ -84,14 +84,6 @@ To also collect coverage:
 uv run pytest --cov=systemdesk_mcp
 ```
 
-Tool behavior and input-constraint tests live together in the `tests/tools/` package: `test_lifecycle.py`, `test_projects.py`, and `test_autosar.py`. Cross-cutting schema contracts and server integration checks live in `tests/test_server.py`. Shared COM mocking lives in `tests/conftest.py` and applies to the tool tests too; path examples, schema validation, and tool inspection helpers live in `tests/helpers.py`.
-
-To run one group:
-
-```powershell
-uv run pytest tests/tools/test_autosar.py
-```
-
 For an end-to-end smoke test against an existing SystemDesk installation, use the prompt in `.github/prompts/smoke-test.prompt.md`.
 
 ## Available MCP Tools
@@ -106,9 +98,7 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 
 ## Extending the Server
 
-Add a new tool in the appropriate module under `src/systemdesk_mcp/tools/`: `lifecycle.py`, `projects.py`, or `autosar.py`. For a new domain, add a module under `tools/`, then add it to the imports and `__all__` in `tools/__init__.py`. Importing the tools package registers the decorated tools. No changes to `server.py` are needed. Adding a tool to an already imported module requires no registration changes. Restart the server to load changes.
-
-Helper-only modules do not need registration imports. Import failures stop startup rather than silently omitting tools. Tool modules must never import `server.py`. Python callers and tests import tool functions from their owning modules, not from `server.py`.
+Add a new tool in the appropriate domain-specific module under `src/systemdesk_mcp/tools/`. For a new domain, add a module under `tools/`, then add it to the imports and `__all__` in `tools/__init__.py`.
 
 Use the shared `mcp` instance from `mcp_app.py`, COM access, execution, and logging helpers from `runtime.py`, and errors, responses, and input constraints from `common.py`. Keep domain-specific helpers alongside their tools.
 
@@ -166,7 +156,6 @@ Notes:
 
 - Keep the decorators exactly in the order shown, with no others (checked by tests). Set all four annotations.
 - Use `get_app()` to access the live SystemDesk COM object. Never touch COM objects outside the dedicated COM thread.
-- `runtime.py` is the sole owner of the COM connection and executor. Lifecycle tools update `runtime._application` through the module, never a separately imported `_application` binding.
 - `@on_com_thread` runs the tool on the dedicated COM thread. If the operation can block, add a `timeout` parameter as shown; it is used as the call timeout.
 - `@logged` writes a structured log entry for every call.
 - Validate file paths with the existing `*_PATTERN` regexes; only absolute local or UNC paths are accepted.
@@ -185,11 +174,11 @@ Notes:
 ## File Overview
 
 - `src/systemdesk_mcp/server.py`: imports the tools package and starts the stdio server
-- `src/systemdesk_mcp/tools/__init__.py`: central imports for tool-module registration
+- `src/systemdesk_mcp/tools/`: domain-specific tool implementations
+- `src/systemdesk_mcp/tools/__init__.py`: imports for domain-specific module registration
 - `src/systemdesk_mcp/mcp_app.py`: shared FastMCP instance and server instructions
 - `src/systemdesk_mcp/runtime.py`: shared COM connection, worker thread, timeouts, cleanup, and tool logging
 - `src/systemdesk_mcp/common.py`: shared errors, responses, and input constraints
-- `src/systemdesk_mcp/tools/`: lifecycle, project, and AUTOSAR tool implementations
 - `src/systemdesk_mcp/__init__.py`: package version
 - `tests/`: unit tests and ARXML test fixtures
 - `pyproject.toml`: project metadata and Python dependencies (managed with `uv`)
