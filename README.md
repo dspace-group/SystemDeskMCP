@@ -1,7 +1,8 @@
 # dSPACE SystemDesk MCP Server
 
 This MCP server automates dSPACE SystemDesk through its COM automation interface.
-It covers the SystemDesk lifecycle, project operations, and AUTOSAR file import/validation.
+It covers the SystemDesk lifecycle, project operations, AUTOSAR file import/validation,
+and composition creation from existing software component types.
 
 SystemDesk acts as a strong partner for AI-driven AUTOSAR generation, where AI agents create comprehensive architecture descriptions and SystemDesk ensures correctness, consistency, and compliance through its robust validation capabilities.
 
@@ -54,9 +55,10 @@ Recommended flow:
 1. `start_systemdesk()`
 2. `create_project(project_path, project_name)` or open an existing project
 3. `import_autosar_file(file_path, timeout=60)`
-4. `validate_autosar(output_format="markdown" | "json", timeout=120)`
-5. `close_project(save_project=True)`
-6. `close_systemdesk(save_project=True)`
+4. `create_composition(composition_path, component_paths)` (optional)
+5. `validate_autosar(output_format="markdown" | "json", timeout=120)`
+6. `close_project(save_project=True)`
+7. `close_systemdesk(save_project=True)`
 
 Important:
 
@@ -95,6 +97,7 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 - `create_project(project_path, project_name)`
 - `close_project(save_project=True)`
 - `import_autosar_file(file_path, timeout=60)`
+- `create_composition(composition_path, component_paths)`
 - `validate_autosar(output_format="markdown" | "json", timeout=120)`
 
 ## Extending the Server
