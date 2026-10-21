@@ -197,7 +197,7 @@ def get_systemdesk_status() -> dict[str, Any]:
     and whether a project is currently open.
 
     Precondition: None, may be called at any time.
-    Returns running, project_open, and optional project_name.
+    Returns running, project_open, and optional project_name and project_modified.
 
     Failure codes (error_type / condition): None
     """
@@ -208,6 +208,7 @@ def get_systemdesk_status() -> dict[str, Any]:
                 "running": False,
                 "project_open": False,
                 "project_name": None,
+                "project_modified": None,
                 "message": "SystemDesk is not running.",
             }
         )
@@ -220,6 +221,7 @@ def get_systemdesk_status() -> dict[str, Any]:
                     "running": True,
                     "project_open": False,
                     "project_name": None,
+                    "project_modified": None,
                     "message": "SystemDesk is running and no project is open.",
                 }
             )
@@ -229,6 +231,7 @@ def get_systemdesk_status() -> dict[str, Any]:
                 "running": True,
                 "project_open": True,
                 "project_name": active_project.Name,
+                "project_modified": active_project.IsModified,
                 "message": "SystemDesk is running and a project is open.",
             }
         )
@@ -240,6 +243,7 @@ def get_systemdesk_status() -> dict[str, Any]:
                 "running": False,
                 "project_open": False,
                 "project_name": None,
+                "project_modified": None,
                 "message": "SystemDesk is not running.",
             }
         )

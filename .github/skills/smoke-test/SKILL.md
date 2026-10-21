@@ -30,6 +30,7 @@ Use the SystemDesk MCP Server to perform an end-to-end smoke test, ensuring that
 5. After validation, use the tools provided by the SystemDesk MCP server to get the status of SystemDesk and whether a project is opened. The expected results are:
    - SystemDesk is running.
    - A project is opened.
+   - The project is modified.
 6. Close SystemDesk.
 7. SystemDesk.exe should not be running after the test finishes. Allow a grace period for it to close properly.
 
