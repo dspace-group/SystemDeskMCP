@@ -16,7 +16,7 @@ from systemdesk_mcp.common import (
     success_response,
 )
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.runtime import get_app, logged, on_com_thread
+from systemdesk_mcp.runtime import get_active_project, get_app, logged, on_com_thread
 
 
 class ValidateOutputFormat(str, Enum):
@@ -69,20 +69,13 @@ def import_autosar_file(
     - transient / IMPORT_FAILED: import call failed
     """
     try:
-        app = get_app()
+        active_project = get_active_project()
 
         if not os.path.isfile(file_path):
             raise PermanentError(
                 f"File not found: '{file_path}'. "
                 "Provide an absolute path to an existing .arxml file.",
                 error_code=ErrorCode.FILE_NOT_FOUND)
-
-        active_project = app.ActiveProject
-        if active_project is None:
-            raise PermanentError(
-                "No project is currently open. "
-                "Call create_project or open a project first.",
-                error_code=ErrorCode.NO_PROJECT_OPEN)
 
         import_export_file = active_project.ImportExportFiles.Add(file_path)
         import_export_file.AddNewElementsToConfiguration = True
@@ -176,13 +169,7 @@ def validate_autosar(
     - transient / VALIDATION_FAILED: validation call failed
     """
     try:
-        app = get_app()
-
-        active_project = app.ActiveProject
-        if active_project is None:
-            raise PermanentError(
-                "No project is currently open. Call create_project or open a project first.",
-                error_code=ErrorCode.NO_PROJECT_OPEN)
+        active_project = get_active_project()
 
         # Validation runs on the dedicated COM apartment thread; the timeout
         # is enforced by the @on_com_thread decorator.
@@ -313,12 +300,7 @@ def create_composition(
     """
     composition = None
     try:
-        project: Any = get_app().ActiveProject
-        if project is None:
-            raise PermanentError(
-                "No project is currently open. Call create_project or open a project first.",
-                error_code=ErrorCode.NO_PROJECT_OPEN,
-            )
+        project: Any = get_active_project()
 
         if project.GetElementsByARPath(composition_path):
             raise PermanentError(
