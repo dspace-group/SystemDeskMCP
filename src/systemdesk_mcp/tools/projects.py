@@ -18,6 +18,7 @@ from systemdesk_mcp.runtime import get_app, logged, on_com_thread
 
 
 @mcp.tool(
+    title="Create Project",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": True,
@@ -91,6 +92,7 @@ def create_project(
 
 
 @mcp.tool(
+    title="Close Project",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": True,

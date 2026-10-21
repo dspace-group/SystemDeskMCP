@@ -27,6 +27,7 @@ class ValidateOutputFormat(str, Enum):
 
 
 @mcp.tool(
+    title="Import AUTOSAR File",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": True,
@@ -132,6 +133,7 @@ def _dump_message(message, indent=0) -> Iterable[str]:
 
 
 @mcp.tool(
+    title="Validate AUTOSAR",
     annotations={
         "readOnlyHint": True,
         "destructiveHint": False,
@@ -254,6 +256,7 @@ def _markdown_line_breaks(text: str) -> str:
 
 
 @mcp.tool(
+    title="Create Composition",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": False,

@@ -121,6 +121,7 @@ from systemdesk_mcp.runtime import get_app, logged, on_com_thread
 
 
 @mcp.tool(
+    title="My New Tool",
     annotations={
         "readOnlyHint": True,
         "destructiveHint": False,
