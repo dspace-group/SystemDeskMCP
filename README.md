@@ -151,7 +151,7 @@ def my_new_tool(
         return error_response(
             "my_new_tool failed.",
             error_type="transient",
-            error_code=ErrorCode.MY_NEW_TOOL_FAILED,
+            error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
 ```
@@ -164,7 +164,7 @@ Notes:
 - `@logged` writes a structured log entry for every call.
 - Validate file paths with the existing `*_PATTERN` regexes; only absolute local or UNC paths are accepted.
 - Return `success_response(...)` or `error_response(...)` so that every tool has the same `status` / `error_type` / `error_code` response format. Use `error_type="permanent"` (via `PermanentError`) for non-retryable failures and `"transient"` for the generic `except Exception` fallback.
-- Use a stable UPPER_SNAKE_CASE `error_code` per failure condition: add it as a member of the `ErrorCode` enum (e.g. `MY_NEW_TOOL_FAILED = "MY_NEW_TOOL_FAILED"`), pass `ErrorCode.<MEMBER>` to `error_response(...)` or `PermanentError(message, error_code=...)`, and list it in the tool's "Failure codes" docstring section. Never rename or remove existing codes; clients depend on them.
+- Use `ErrorCode.UNEXPECTED_ERROR` for the generic `except Exception` fallback. Add a stable UPPER_SNAKE_CASE `error_code` only for a distinct failure condition the client can act on: add it as a member of the `ErrorCode` enum (e.g. `FILE_NOT_FOUND = "FILE_NOT_FOUND"`), pass `ErrorCode.<MEMBER>` to `error_response(...)` or `PermanentError(message, error_code=...)`, and list it in the tool's "Failure codes" docstring section. Never rename or remove existing codes; clients depend on them.
 - Document in the docstring: purpose, preconditions, return fields, and a `Failure codes (error_type / error_code: condition):` section listing every code the tool can return.
 - Update [Usage (Tool Order)](#usage-tool-order), [Available MCP Tools](#available-mcp-tools), and, if relevant, the `instructions` string passed to `FastMCP(...)`.
 

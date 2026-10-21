@@ -66,7 +66,7 @@ def import_autosar_file(
     - permanent / NO_PROJECT_OPEN: no project currently open
     - permanent / IMPORT_REJECTED: SystemDesk rejected the file content (see details)
     - transient / TIMEOUT: import timed out
-    - transient / IMPORT_FAILED: import call failed
+    - transient / UNEXPECTED_ERROR: import call failed
     """
     try:
         active_project = get_active_project()
@@ -111,7 +111,7 @@ def import_autosar_file(
         return error_response(
             f"Failed to import AUTOSAR file '{file_path}'.",
             error_type="transient",
-            error_code=ErrorCode.IMPORT_FAILED,
+            error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
 
@@ -166,7 +166,7 @@ def validate_autosar(
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
     - permanent / NO_PROJECT_OPEN: no project currently open
     - transient / TIMEOUT: validation timed out
-    - transient / VALIDATION_FAILED: validation call failed
+    - transient / UNEXPECTED_ERROR: validation call failed
     """
     try:
         active_project = get_active_project()
@@ -231,7 +231,7 @@ def validate_autosar(
         return error_response(
             "Failed to validate the project.",
             error_type="transient",
-            error_code=ErrorCode.VALIDATION_FAILED,
+            error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
 
@@ -296,7 +296,7 @@ def create_composition(
     - permanent / INVALID_AUTOSAR_ELEMENT_TYPE: component is not a SwComponentType
       or existing composition parent is not an ARPackage
     - permanent / AUTOSAR_ELEMENT_ALREADY_EXISTS: destination path is occupied
-    - transient / COMPOSITION_CREATION_FAILED: COM creation or result readback failed
+    - transient / UNEXPECTED_ERROR: COM creation or result readback failed
     """
     composition = None
     try:
@@ -348,7 +348,7 @@ def create_composition(
         return error_response(
             f"Failed to create composition '{composition_path}'.",
             error_type="transient",
-            error_code=ErrorCode.COMPOSITION_CREATION_FAILED,
+            error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
 

@@ -461,7 +461,7 @@ def test_create_composition_deletes_composition_on_failure(app):
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "transient"
-    assert result["error_code"] == "COMPOSITION_CREATION_FAILED"
+    assert result["error_code"] == "UNEXPECTED_ERROR"
     assert "/Generated/Nested/Top" not in elements
 
 
