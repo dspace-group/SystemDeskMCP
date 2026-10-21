@@ -61,7 +61,7 @@ def create_project(
 
     Failure codes (error_type / error_code: condition):
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
-    - transient / PROJECT_CREATION_FAILED: project creation or save failed
+    - transient / UNEXPECTED_ERROR: project creation or save failed
     """
     try:
         app = get_app()
@@ -85,7 +85,7 @@ def create_project(
         return error_response(
             f"Failed to create project '{project_name}'.",
             error_type="transient",
-            error_code=ErrorCode.PROJECT_CREATION_FAILED,
+            error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
 
@@ -119,7 +119,7 @@ def close_project(
 
     Failure codes (error_type / error_code: condition):
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
-    - transient / PROJECT_CLOSE_FAILED: close or save call failed
+    - transient / UNEXPECTED_ERROR: close or save call failed
     """
     try:
         app = get_app()
@@ -147,6 +147,6 @@ def close_project(
         return error_response(
             "Failed to close the project.",
             error_type="transient",
-            error_code=ErrorCode.PROJECT_CLOSE_FAILED,
+            error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
