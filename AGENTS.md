@@ -13,7 +13,7 @@ Python MCP server (FastMCP, stdio) that automates dSPACE SystemDesk via its COM 
 - [tests/tools/](tests/tools/): package for domain-specific tool behavior tests; inherits the parent COM fixture.
 - [tests/conftest.py](tests/conftest.py): shared autouse COM application fixture with automatic state restoration.
 - [tests/helpers.py](tests/helpers.py): shared argument validation helpers.
-- [.github/prompts/smoke-test.prompt.md](.github/prompts/smoke-test.prompt.md): end-to-end smoke test against a real SystemDesk installation (requires a license).
+- [.github/skills/smoke-test/SKILL.md](.github/skills/smoke-test/SKILL.md): end-to-end smoke test against a real SystemDesk installation (requires a license).
 
 ## Commands
 

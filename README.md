@@ -84,7 +84,8 @@ To also collect coverage:
 uv run pytest --cov=systemdesk_mcp
 ```
 
-For an end-to-end smoke test against an existing SystemDesk installation, use the prompt in `.github/prompts/smoke-test.prompt.md`.
+For an end-to-end smoke test against an existing SystemDesk installation, use the
+[smoke-test skill](.github/skills/smoke-test/SKILL.md).
 
 ## Available MCP Tools
 
@@ -183,7 +184,7 @@ Notes:
 - `tests/`: unit tests and ARXML test fixtures
 - `pyproject.toml`: project metadata and Python dependencies (managed with `uv`)
 - `SystemDeskMCP.cmd`: Convenience launcher used by MCP clients
-- `.github/prompts/smoke-test.prompt.md`: end-to-end smoke test prompt
+- `.github/skills/smoke-test/SKILL.md`: end-to-end smoke test skill
 
 ## Support
 
