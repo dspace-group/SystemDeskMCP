@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import ValidationError
 
+from systemdesk_mcp import runtime
 from systemdesk_mcp.tools import projects
 from tests.helpers import INVALID_ABSOLUTE_DIRS, VALID_ABSOLUTE_DIRS, validate_args
 
@@ -44,6 +45,20 @@ def test_close_project_without_save(app):
     assert "closed successfully" in result["message"].lower()
     active_project.Save.assert_not_called()
     active_project.Close.assert_called_once_with(False)
+
+
+def test_close_project_not_started():
+    # arrange
+    # Representative guard - same pattern across all tools.
+    runtime._application = None  # pylint: disable=protected-access
+
+    # act
+    result = projects.close_project()
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "SYSTEMDESK_NOT_RUNNING"
 
 
 def test_create_project_success(app, tmp_path):
