@@ -66,7 +66,7 @@ def import_autosar_file(
     - permanent / NO_PROJECT_OPEN: no project currently open
     - permanent / IMPORT_REJECTED: SystemDesk rejected the file content (see details)
     - transient / TIMEOUT: import timed out
-    - transient / UNEXPECTED_ERROR: import call failed
+    - permanent / UNEXPECTED_ERROR: import call failed
     """
     try:
         active_project = get_active_project()
@@ -110,7 +110,7 @@ def import_autosar_file(
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return error_response(
             f"Failed to import AUTOSAR file '{file_path}'.",
-            error_type="transient",
+            error_type="permanent",
             error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
@@ -166,7 +166,7 @@ def validate_autosar(
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
     - permanent / NO_PROJECT_OPEN: no project currently open
     - transient / TIMEOUT: validation timed out
-    - transient / UNEXPECTED_ERROR: validation call failed
+    - permanent / UNEXPECTED_ERROR: validation call failed
     """
     try:
         active_project = get_active_project()
@@ -230,7 +230,7 @@ def validate_autosar(
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return error_response(
             "Failed to validate the project.",
-            error_type="transient",
+            error_type="permanent",
             error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
@@ -296,7 +296,7 @@ def create_composition(
     - permanent / INVALID_AUTOSAR_ELEMENT_TYPE: component is not a SwComponentType
       or existing composition parent is not an ARPackage
     - permanent / AUTOSAR_ELEMENT_ALREADY_EXISTS: destination path is occupied
-    - transient / UNEXPECTED_ERROR: COM creation or result readback failed
+    - permanent / UNEXPECTED_ERROR: COM creation or result readback failed
     """
     composition = None
     try:
@@ -347,7 +347,7 @@ def create_composition(
             composition.Delete()
         return error_response(
             f"Failed to create composition '{composition_path}'.",
-            error_type="transient",
+            error_type="permanent",
             error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
