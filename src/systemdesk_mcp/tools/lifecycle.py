@@ -12,6 +12,7 @@ from systemdesk_mcp.runtime import logged, on_com_thread
 
 
 @mcp.tool(
+    title="Start SystemDesk",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": False,
@@ -113,6 +114,7 @@ def start_systemdesk(
 
 
 @mcp.tool(
+    title="Close SystemDesk",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": True,
@@ -179,6 +181,7 @@ def close_systemdesk(
 
 
 @mcp.tool(
+    title="Get SystemDesk Status",
     annotations={
         "readOnlyHint": True,
         "destructiveHint": False,
