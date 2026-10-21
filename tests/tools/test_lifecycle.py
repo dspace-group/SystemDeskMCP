@@ -25,18 +25,17 @@ def test_start_systemdesk_win32com_missing():
     assert result["error_code"] == "WIN32COM_NOT_INSTALLED"
 
 
-def test_close_systemdesk_not_started():
+def test_close_systemdesk_not_running_is_no_op():
     # arrange
-    # Representative guard - same pattern across all tools.
     runtime._application = None
 
     # act
     result = lifecycle.close_systemdesk()
 
     # assert
-    assert result["status"] == "error"
-    assert result["error_type"] == "permanent"
-    assert result["error_code"] == "SYSTEMDESK_NOT_RUNNING"
+    assert result["status"] == "success"
+    assert result["message"] == "SystemDesk is not running."
+    assert runtime._application is None
 
 
 def test_get_systemdesk_status_not_running():

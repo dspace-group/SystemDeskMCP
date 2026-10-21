@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from systemdesk_mcp import runtime
-from systemdesk_mcp.common import ErrorCode, PermanentError, error_response, success_response
+from systemdesk_mcp.common import ErrorCode, error_response, success_response
 from systemdesk_mcp.mcp_app import mcp
 from systemdesk_mcp.runtime import logged, on_com_thread
 
@@ -29,7 +29,8 @@ def start_systemdesk(
     Start SystemDesk and establish a COM connection.
 
     If SystemDesk is already running, reconnects to the existing instance.
-    Must be called before using any other SystemDesk tool except `get_systemdesk_status`.
+    Must be called before using any other SystemDesk tool except `get_systemdesk_status`
+    and `close_systemdesk`.
     
     Precondition: None, may be called at any time.
     Returns the ApplicationRootDir and the resolved ProgID on success.
@@ -138,19 +139,22 @@ def close_systemdesk(
 
     Optionally saves the open project before closing.
     After this call, start_systemdesk must be called again before using other tools.
+    If SystemDesk is not running, this is a no-op and returns success.
 
-    Precondition: start_systemdesk must be called first.
+    Precondition: None, may be called at any time.
     Returns a confirmation message on success.
 
     Failure codes (error_type / error_code: condition):
-    - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
     - permanent / UNEXPECTED_ERROR: project save or Quit call failed (returns immediately)
 
     After an error, call `get_systemdesk_status` to check whether SystemDesk is reported
     as running and whether an open project has unsaved changes.
     """
+    if runtime._application is None:
+        return success_response({"message": "SystemDesk is not running."})
+
     try:
-        app = runtime.get_app()
+        app = runtime._application
 
         if save_project:
             try:
@@ -169,8 +173,6 @@ def close_systemdesk(
         runtime._application = None
         return success_response({"message": "SystemDesk closed successfully."})
 
-    except PermanentError as exc:
-        return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return error_response(
             "Failed to close SystemDesk.",
