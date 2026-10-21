@@ -51,6 +51,7 @@ def test_get_systemdesk_status_not_running():
     assert result["running"] is False
     assert result["project_open"] is False
     assert result["project_name"] is None
+    assert result["project_modified"] is None
 
 
 def test_get_systemdesk_status_running_no_project(app):
@@ -65,12 +66,15 @@ def test_get_systemdesk_status_running_no_project(app):
     assert result["running"] is True
     assert result["project_open"] is False
     assert result["project_name"] is None
+    assert result["project_modified"] is None
 
 
-def test_get_systemdesk_status_running_with_project(app):
+@pytest.mark.parametrize("is_modified", [True, False])
+def test_get_systemdesk_status_running_with_project(app, is_modified):
     # arrange
     active_project = MagicMock()
     active_project.Name = "MyProject"
+    active_project.IsModified = is_modified
     app.ActiveProject = active_project
 
     # act
@@ -81,6 +85,7 @@ def test_get_systemdesk_status_running_with_project(app):
     assert result["running"] is True
     assert result["project_open"] is True
     assert result["project_name"] == "MyProject"
+    assert result["project_modified"] is is_modified
 
 
 def test_close_systemdesk_without_save(app):
