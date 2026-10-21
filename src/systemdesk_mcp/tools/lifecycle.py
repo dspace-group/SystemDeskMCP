@@ -38,7 +38,7 @@ def start_systemdesk(
     - permanent / PROGID_NOT_REGISTERED: SystemDesk ProgID not registered
     - permanent / ACCESS_DENIED: access denied
     - transient / BLOCKED_BY_DIALOG: SystemDesk blocked by open dialog
-    - transient / UNEXPECTED_ERROR: other failure while starting SystemDesk
+    - permanent / UNEXPECTED_ERROR: other failure while starting SystemDesk
 
     Hint: This tool does not provide a timeout parameter,
     because opening the COM connection has an inherent timeout.
@@ -106,7 +106,7 @@ def start_systemdesk(
                 "Failed to start SystemDesk. "
                 "Ensure SystemDesk is installed and no blocking dialog is open."
             )
-            error_type = "transient"
+            error_type = "permanent"
             error_code = ErrorCode.UNEXPECTED_ERROR
 
         return error_response(message, error_type=error_type, error_code=error_code, details=exc_str)
@@ -142,7 +142,7 @@ def close_systemdesk(
 
     Failure codes (error_type / error_code: condition):
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
-    - transient / UNEXPECTED_ERROR: project save or Quit call failed (returns immediately)
+    - permanent / UNEXPECTED_ERROR: project save or Quit call failed (returns immediately)
 
     After an error, call `get_systemdesk_status` to check whether SystemDesk is reported
     as running and whether an open project has unsaved changes.
@@ -158,7 +158,7 @@ def close_systemdesk(
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 return error_response(
                     "Failed to save project before closing SystemDesk.",
-                    error_type="transient",
+                    error_type="permanent",
                     error_code=ErrorCode.UNEXPECTED_ERROR,
                     details=str(exc),
                 )
@@ -172,7 +172,7 @@ def close_systemdesk(
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return error_response(
             "Failed to close SystemDesk.",
-            error_type="transient",
+            error_type="permanent",
             error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )

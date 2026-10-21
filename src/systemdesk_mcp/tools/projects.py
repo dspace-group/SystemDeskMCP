@@ -61,7 +61,7 @@ def create_project(
 
     Failure codes (error_type / error_code: condition):
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
-    - transient / UNEXPECTED_ERROR: project creation or save failed
+    - permanent / UNEXPECTED_ERROR: project creation or save failed
     """
     try:
         app = get_app()
@@ -84,7 +84,7 @@ def create_project(
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return error_response(
             f"Failed to create project '{project_name}'.",
-            error_type="transient",
+            error_type="permanent",
             error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
@@ -119,7 +119,7 @@ def close_project(
 
     Failure codes (error_type / error_code: condition):
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
-    - transient / UNEXPECTED_ERROR: close or save call failed
+    - permanent / UNEXPECTED_ERROR: close or save call failed
     """
     try:
         app = get_app()
@@ -146,7 +146,7 @@ def close_project(
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return error_response(
             "Failed to close the project.",
-            error_type="transient",
+            error_type="permanent",
             error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
