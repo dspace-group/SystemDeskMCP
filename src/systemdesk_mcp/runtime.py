@@ -79,7 +79,9 @@ def on_com_thread(fn):
             return error_response(
                 f"Operation '{fn.__name__}' timed out"
                 + (f" after {timeout}s." if timeout else ".")
-                + " SystemDesk may still be processing the request.",
+                + " The operation continues in SystemDesk."
+                + " Call get_systemdesk_status before retrying;"
+                + " it waits until the pending operation has finished.",
                 error_type="transient",
                 error_code=ErrorCode.TIMEOUT,
             )

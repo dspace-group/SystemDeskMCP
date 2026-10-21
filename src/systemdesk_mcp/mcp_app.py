@@ -11,6 +11,8 @@ mcp = FastMCP(
         "All tools return a JSON dictionary with a 'status' field ('success' or 'error'). "
         "On error, 'error_type' is either 'permanent' (do not retry, halt or escalate) "
         "or 'transient' (retryable with backoff), and 'error_code' is a stable "
-        "machine-parseable code identifying the failure condition (e.g. 'NO_PROJECT_OPEN')."
+        "machine-parseable code identifying the failure condition (e.g. 'NO_PROJECT_OPEN'). "
+        "After a 'TIMEOUT' error, the operation continues in SystemDesk; "
+        "call get_systemdesk_status before retrying."
     ),
 )
