@@ -28,6 +28,17 @@ def get_app():
     return _application
 
 
+def get_active_project():
+    """Return the currently open SystemDesk project or raise a permanent error."""
+    project = get_app().ActiveProject
+    if project is None:
+        raise PermanentError(
+            "No project is currently open. Call create_project or open a project first.",
+            error_code=ErrorCode.NO_PROJECT_OPEN,
+        )
+    return project
+
+
 def _com_thread_init():
     pythoncom.CoInitializeEx(pythoncom.COINIT_MULTITHREADED)
 
