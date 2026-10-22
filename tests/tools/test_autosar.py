@@ -27,6 +27,7 @@ def test_import_autosar_file_success(app, tmp_path):
     active_project = MagicMock()
     import_export_file = MagicMock()
     import_export_file.Import.return_value = True
+    active_project.ImportExportFiles.Item.return_value = None
     active_project.ImportExportFiles.Add.return_value = import_export_file
     app.ActiveProject = active_project
 
@@ -37,7 +38,30 @@ def test_import_autosar_file_success(app, tmp_path):
     assert result["status"] == "success"
     assert result["imported_file"] == str(arxml_file)
     assert "imported successfully" in result["message"].lower()
+    active_project.ImportExportFiles.Item.assert_called_once_with(str(arxml_file))
     active_project.ImportExportFiles.Add.assert_called_once_with(str(arxml_file))
+    import_export_file.Import.assert_called_once()
+    import_export_file.Delete.assert_not_called()
+
+
+def test_import_autosar_file_reuses_existing_entry(app, tmp_path):
+    # arrange
+    arxml_file = tmp_path / "valid_model.arxml"
+    arxml_file.write_text("<AUTOSAR/>")
+    active_project = MagicMock()
+    import_export_file = MagicMock()
+    import_export_file.Import.return_value = True
+    active_project.ImportExportFiles.Item.return_value = import_export_file
+    app.ActiveProject = active_project
+
+    # act
+    result = autosar.import_autosar_file(file_path=str(arxml_file))
+
+    # assert
+    assert result["status"] == "success"
+    assert result["imported_file"] == str(arxml_file)
+    active_project.ImportExportFiles.Item.assert_called_once_with(str(arxml_file))
+    active_project.ImportExportFiles.Add.assert_not_called()
     import_export_file.Import.assert_called_once()
     import_export_file.Delete.assert_not_called()
 
@@ -217,6 +241,7 @@ def test_import_autosar_file_schema_error(app, tmp_path):
     active_project = MagicMock()
     import_export_file = MagicMock()
     import_export_file.Import.return_value = False
+    active_project.ImportExportFiles.Item.return_value = None
     active_project.ImportExportFiles.Add.return_value = import_export_file
     app.ActiveProject = active_project
 
@@ -244,6 +269,7 @@ def test_import_autosar_file_schema_error(app, tmp_path):
     assert result["error_type"] == "permanent"
     assert result["error_code"] == "IMPORT_REJECTED"
     assert result["details"] == "[Info] Preparing\n  [Info] Validating\n    [Error] Invalid element\n  [Error] Import failed"
+    active_project.ImportExportFiles.Item.assert_called_once_with(str(arxml_file))
     active_project.ImportExportFiles.Add.assert_called_once_with(str(arxml_file))
     import_export_file.Import.assert_called_once()
     import_export_file.Delete.assert_called_once()

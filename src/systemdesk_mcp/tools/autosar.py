@@ -78,7 +78,10 @@ def import_autosar_file(
                 "Provide an absolute path to an existing .arxml file.",
                 error_code=ErrorCode.FILE_NOT_FOUND)
 
-        import_export_file = active_project.ImportExportFiles.Add(file_path)
+        import_export_files = active_project.ImportExportFiles
+        import_export_file = import_export_files.Item(file_path)
+        if import_export_file is None:
+            import_export_file = import_export_files.Add(file_path)
         import_export_file.AddNewElementsToConfiguration = True
         import_export_file.ExportDiagrams = True
         import_export_file.ImportDiagrams = True
