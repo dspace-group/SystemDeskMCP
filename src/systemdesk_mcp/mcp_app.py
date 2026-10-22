@@ -2,8 +2,11 @@
 
 from fastmcp import FastMCP
 
+from systemdesk_mcp import __version__
+
 mcp = FastMCP(
     "SystemDesk MCP Server",
+    version=__version__,
     instructions=(
         "Use start_systemdesk before calling any other tool. "
         "Use close_systemdesk to release the COM connection when done. "
