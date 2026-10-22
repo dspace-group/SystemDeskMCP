@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "systemdesk-mcp"
-version = "0.1.0"
+version = "1.0.0a0"
 description = "Python MCP server for automating dSPACE SystemDesk"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "packaging>=24",
     "pylint>=4.0.7,<5",
     "pytest>=9.1.1,<10",
     "pytest-cov>=7.1.0,<8",
