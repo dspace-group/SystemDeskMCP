@@ -33,7 +33,7 @@ def get_active_project():
     project = get_app().ActiveProject
     if project is None:
         raise PermanentError(
-            "No project is currently open. Call create_project or open a project first.",
+            "No project is currently open. Call create_project or open_project first.",
             error_code=ErrorCode.NO_PROJECT_OPEN,
         )
     return project
