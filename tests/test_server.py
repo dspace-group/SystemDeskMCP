@@ -6,6 +6,7 @@ import json
 import typing
 
 import pytest
+from packaging.version import Version
 from pydantic.fields import FieldInfo
 from fastmcp.exceptions import ValidationError as FastMCPValidationError
 from fastmcp.tools import FunctionTool
@@ -93,7 +94,10 @@ async def test_tool_parameters_are_described_and_strict():
             )
 
 
-def test_version_is_semver():
-    parts = srv.__version__.split(".")
-    assert len(parts) == 3
-    assert all(p.isdigit() for p in parts)
+def test_version_is_pep440():
+    # act
+    version = Version(srv.__version__)
+
+    # assert
+    assert str(version) == srv.__version__, "Version must be in normalized PEP 440 form."
+    assert len(version.release) == 3
