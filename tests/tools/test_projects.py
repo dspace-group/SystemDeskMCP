@@ -99,3 +99,138 @@ def test_create_project_invalid_name_rejected_by_schema(project_name):
         validate_args(
             projects.create_project, project_path="C:\\Projects", project_name=project_name
         )
+
+
+def test_open_project_success(app, tmp_path):
+    # arrange
+    project_file = tmp_path / "MyEcu.sdp"
+    project_file.write_text("")
+    app.ActiveProject = None
+    opened_project = MagicMock()
+    opened_project.Name = "MyEcuArchitecture"
+
+    def open_project(_path):
+        app.ActiveProject = opened_project
+
+    app.OpenProject.side_effect = open_project
+
+    # act
+    result = projects.open_project(project_file=str(project_file))
+
+    # assert
+    assert result["status"] == "success"
+    assert result["project_name"] == "MyEcuArchitecture"
+    assert result["project_file"] == str(project_file)
+    assert "opened successfully" in result["message"].lower()
+    app.OpenProject.assert_called_once_with(str(project_file))
+
+
+def test_open_project_discards_active_project(app, tmp_path):
+    # arrange
+    project_file = tmp_path / "MyEcu.sdp"
+    project_file.write_text("")
+    active_project = MagicMock()
+    active_project.Repository = str(tmp_path / "Other.sdp")
+    app.ActiveProject = active_project
+    opened_project = MagicMock()
+    opened_project.Name = "MyEcu"
+
+    def open_project(_path):
+        app.ActiveProject = opened_project
+
+    app.OpenProject.side_effect = open_project
+
+    # act
+    result = projects.open_project(project_file=str(project_file))
+
+    # assert
+    assert result["status"] == "success"
+    assert result["project_name"] == "MyEcu"
+    active_project.Save.assert_not_called()
+    active_project.Close.assert_called_once_with(False)
+    app.OpenProject.assert_called_once_with(str(project_file))
+
+
+def test_open_project_already_open(app, tmp_path):
+    # arrange
+    project_file = tmp_path / "MyEcu.sdp"
+    project_file.write_text("")
+    active_project = MagicMock()
+    active_project.Name = "MyEcu"
+    active_project.Repository = str(project_file).upper()
+    app.ActiveProject = active_project
+
+    # act
+    result = projects.open_project(project_file=str(project_file))
+
+    # assert
+    assert result["status"] == "success"
+    assert result["project_name"] == "MyEcu"
+    assert result["project_file"] == str(project_file)
+    assert "already open" in result["message"].lower()
+    active_project.Close.assert_not_called()
+    app.OpenProject.assert_not_called()
+
+
+def test_open_project_file_not_found(app, tmp_path):
+    # arrange
+    active_project = app.ActiveProject
+
+    # act
+    result = projects.open_project(project_file=str(tmp_path / "Missing.sdp"))
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "FILE_NOT_FOUND"
+    active_project.Close.assert_not_called()
+    app.OpenProject.assert_not_called()
+
+
+def test_open_project_com_failure(app, tmp_path):
+    # arrange
+    project_file = tmp_path / "MyEcu.sdp"
+    project_file.write_text("")
+    app.ActiveProject = None
+    app.OpenProject.side_effect = Exception("COM error")
+
+    # act
+    result = projects.open_project(project_file=str(project_file))
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "UNEXPECTED_ERROR"
+    assert result["details"] == "COM error"
+
+
+@pytest.mark.parametrize(
+    "project_file",
+    [d.rstrip("\\/") + "\\MyECU.sdp" for d in VALID_ABSOLUTE_DIRS]
+    + ["C:\\Projects\\MyECU.SDP", "C:\\Projects\\MyECU.SdP", "C:\\Projects\\my.ecu.sdp"],
+)
+def test_open_project_absolute_path_accepted_by_schema(project_file):
+    validate_args(projects.open_project, project_file=project_file)
+
+
+@pytest.mark.parametrize(
+    "project_file",
+    [
+        "MyECU.sdp",
+        "Projects\\MyECU.sdp",
+        ".\\MyECU.sdp",
+        "..\\Projects\\MyECU.sdp",
+        "\\Projects\\MyECU.sdp",
+        "/Projects/MyECU.sdp",
+        "C:MyECU.sdp",
+        "1:\\Projects\\MyECU.sdp",
+        "\\\\\\share\\MyECU.sdp",
+        "C:\\Projects\\MyECU.xml",
+        "C:\\Projects\\MyECU.sdpx",
+        "C:\\Projects\\MyECU.sdp.bak",
+        "C:\\Projects\\MyECUsdp",
+    ],
+)
+def test_open_project_invalid_path_rejected_by_schema(project_file):
+    with pytest.raises(ValidationError):
+        validate_args(projects.open_project, project_file=project_file)
