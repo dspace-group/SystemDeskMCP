@@ -53,7 +53,7 @@ uv sync
 Recommended flow:
 
 1. `start_systemdesk()`
-2. `create_project(project_path, project_name)` or open an existing project
+2. `create_project(project_path, project_name)` or `open_project(project_file, timeout=60)`
 3. `import_autosar_file(file_path, timeout=60)`
 4. `create_composition(composition_path, component_paths)` (optional)
 5. `validate_autosar(output_format="markdown" | "json", timeout=120)`
@@ -95,6 +95,7 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 - `get_systemdesk_status()`
 - `close_systemdesk(save_project=True)`
 - `create_project(project_path, project_name)`
+- `open_project(project_file, timeout=60)`
 - `close_project(save_project=True)`
 - `import_autosar_file(file_path, timeout=60)`
 - `create_composition(composition_path, component_paths)`

@@ -63,6 +63,7 @@ def error_response(
 _ABSOLUTE_PATH_PREFIX = r"^(?:[a-zA-Z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+)"
 ABSOLUTE_PATH_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*$"
 ARXML_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*\.[aA][rR][xX][mM][lL]$"
+SDP_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*\.[sS][dD][pP]$"
 FILE_NAME_PATTERN = r'^[^<>:"/\\|?*\x00-\x1F]+$'
 
 AUTOSAR_ELEMENT_PATH_PATTERN = r"^(/[a-zA-Z][a-zA-Z0-9_]{0,127}){2,}$"
