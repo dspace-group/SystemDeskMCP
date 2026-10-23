@@ -1,8 +1,11 @@
-"""Tests for shared COM worker execution."""
+"""Tests for shared COM worker execution and connection state helpers."""
 
 import threading
 
-from systemdesk_mcp.runtime import on_com_thread
+import pytest
+
+from systemdesk_mcp.common import ErrorCode, PermanentError
+from systemdesk_mcp.runtime import get_active_project, on_com_thread
 
 
 def test_on_com_thread_reuses_worker_separate_from_caller():
@@ -24,3 +27,21 @@ def test_on_com_thread_reuses_worker_separate_from_caller():
     # assert
     assert first_thread == second_thread == repeated_thread
     assert first_thread != caller_thread
+
+
+def test_get_active_project_returns_open_project(app):
+    # act
+    project = get_active_project()
+
+    # assert
+    assert project is app.ActiveProject
+
+
+def test_get_active_project_no_project_open(app):
+    # arrange
+    app.ActiveProject = None
+
+    # act / assert
+    with pytest.raises(PermanentError, match="No project is currently open") as exc_info:
+        get_active_project()
+    assert exc_info.value.error_code == ErrorCode.NO_PROJECT_OPEN

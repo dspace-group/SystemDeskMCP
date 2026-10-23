@@ -28,6 +28,17 @@ def get_app():
     return _application
 
 
+def get_active_project():
+    """Return the currently open SystemDesk project or raise a permanent error."""
+    project = get_app().ActiveProject
+    if project is None:
+        raise PermanentError(
+            "No project is currently open. Call create_project or open_project first.",
+            error_code=ErrorCode.NO_PROJECT_OPEN,
+        )
+    return project
+
+
 def _com_thread_init():
     pythoncom.CoInitializeEx(pythoncom.COINIT_MULTITHREADED)
 
@@ -68,7 +79,9 @@ def on_com_thread(fn):
             return error_response(
                 f"Operation '{fn.__name__}' timed out"
                 + (f" after {timeout}s." if timeout else ".")
-                + " SystemDesk may still be processing the request.",
+                + " The operation continues in SystemDesk."
+                + " Call get_systemdesk_status before retrying;"
+                + " it waits until the pending operation has finished.",
                 error_type="transient",
                 error_code=ErrorCode.TIMEOUT,
             )

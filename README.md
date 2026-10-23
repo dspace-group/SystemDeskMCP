@@ -1,7 +1,8 @@
 # dSPACE SystemDesk MCP Server
 
 This MCP server automates dSPACE SystemDesk through its COM automation interface.
-It covers the SystemDesk lifecycle, project operations, and AUTOSAR file import/validation.
+It covers the SystemDesk lifecycle, project operations, AUTOSAR file import/validation,
+and composition creation from existing software component types.
 
 SystemDesk acts as a strong partner for AI-driven AUTOSAR generation, where AI agents create comprehensive architecture descriptions and SystemDesk ensures correctness, consistency, and compliance through its robust validation capabilities.
 
@@ -52,11 +53,12 @@ uv sync
 Recommended flow:
 
 1. `start_systemdesk()`
-2. `create_project(project_path, project_name)` or open an existing project
+2. `create_project(project_path, project_name)` or `open_project(project_file, timeout=60)`
 3. `import_autosar_file(file_path, timeout=60)`
-4. `validate_autosar(output_format="markdown" | "json", timeout=120)`
-5. `close_project(save_project=True)`
-6. `close_systemdesk(save_project=True)`
+4. `create_composition(composition_path, component_paths)` (optional)
+5. `validate_autosar(output_format="markdown" | "json", timeout=120)`
+6. `close_project(save_project=True)`
+7. `close_systemdesk(save_project=True)`
 
 Important:
 
@@ -84,7 +86,8 @@ To also collect coverage:
 uv run pytest --cov=systemdesk_mcp
 ```
 
-For an end-to-end smoke test against an existing SystemDesk installation, use the prompt in `.github/prompts/smoke-test.prompt.md`.
+For an end-to-end smoke test against an existing SystemDesk installation, use the
+[smoke-test skill](.github/skills/smoke-test/SKILL.md).
 
 ## Available MCP Tools
 
@@ -92,8 +95,10 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 - `get_systemdesk_status()`
 - `close_systemdesk(save_project=True)`
 - `create_project(project_path, project_name)`
+- `open_project(project_file, timeout=60)`
 - `close_project(save_project=True)`
 - `import_autosar_file(file_path, timeout=60)`
+- `create_composition(composition_path, component_paths)`
 - `validate_autosar(output_format="markdown" | "json", timeout=120)`
 
 ## Extending the Server
@@ -117,6 +122,7 @@ from systemdesk_mcp.runtime import get_app, logged, on_com_thread
 
 
 @mcp.tool(
+    title="My New Tool",
     annotations={
         "readOnlyHint": True,
         "destructiveHint": False,
@@ -146,8 +152,8 @@ def my_new_tool(
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return error_response(
             "my_new_tool failed.",
-            error_type="transient",
-            error_code=ErrorCode.MY_NEW_TOOL_FAILED,
+            error_type="permanent",
+            error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
 ```
@@ -159,8 +165,8 @@ Notes:
 - `@on_com_thread` runs the tool on the dedicated COM thread. If the operation can block, add a `timeout` parameter as shown; it is used as the call timeout.
 - `@logged` writes a structured log entry for every call.
 - Validate file paths with the existing `*_PATTERN` regexes; only absolute local or UNC paths are accepted.
-- Return `success_response(...)` or `error_response(...)` so that every tool has the same `status` / `error_type` / `error_code` response format. Use `error_type="permanent"` (via `PermanentError`) for non-retryable failures and `"transient"` for the generic `except Exception` fallback.
-- Use a stable UPPER_SNAKE_CASE `error_code` per failure condition: add it as a member of the `ErrorCode` enum (e.g. `MY_NEW_TOOL_FAILED = "MY_NEW_TOOL_FAILED"`), pass `ErrorCode.<MEMBER>` to `error_response(...)` or `PermanentError(message, error_code=...)`, and list it in the tool's "Failure codes" docstring section. Never rename or remove existing codes; clients depend on them.
+- Return `success_response(...)` or `error_response(...)` so that every tool has the same `status` / `error_type` / `error_code` response format. Use `error_type="permanent"` (via `PermanentError`) for non-retryable failures and for the generic `except Exception` fallback; reserve `"transient"` for retryable conditions such as timeouts or blocking dialogs.
+- Use `ErrorCode.UNEXPECTED_ERROR` for the generic `except Exception` fallback. Add a stable UPPER_SNAKE_CASE `error_code` only for a distinct failure condition the client can act on: add it as a member of the `ErrorCode` enum (e.g. `FILE_NOT_FOUND = "FILE_NOT_FOUND"`), pass `ErrorCode.<MEMBER>` to `error_response(...)` or `PermanentError(message, error_code=...)`, and list it in the tool's "Failure codes" docstring section. Never rename or remove existing codes; clients depend on them.
 - Document in the docstring: purpose, preconditions, return fields, and a `Failure codes (error_type / error_code: condition):` section listing every code the tool can return.
 - Update [Usage (Tool Order)](#usage-tool-order), [Available MCP Tools](#available-mcp-tools), and, if relevant, the `instructions` string passed to `FastMCP(...)`.
 
@@ -183,7 +189,7 @@ Notes:
 - `tests/`: unit tests and ARXML test fixtures
 - `pyproject.toml`: project metadata and Python dependencies (managed with `uv`)
 - `SystemDeskMCP.cmd`: Convenience launcher used by MCP clients
-- `.github/prompts/smoke-test.prompt.md`: end-to-end smoke test prompt
+- `.github/skills/smoke-test/SKILL.md`: end-to-end smoke test skill
 
 ## Support
 

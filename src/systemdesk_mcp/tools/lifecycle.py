@@ -6,12 +6,13 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from systemdesk_mcp import runtime
-from systemdesk_mcp.common import ErrorCode, PermanentError, error_response, success_response
+from systemdesk_mcp.common import ErrorCode, error_response, success_response
 from systemdesk_mcp.mcp_app import mcp
 from systemdesk_mcp.runtime import logged, on_com_thread
 
 
 @mcp.tool(
+    title="Start SystemDesk",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": False,
@@ -28,17 +29,18 @@ def start_systemdesk(
     Start SystemDesk and establish a COM connection.
 
     If SystemDesk is already running, reconnects to the existing instance.
-    Must be called before using any other SystemDesk tool except `get_systemdesk_status`.
+    Must be called before using any other SystemDesk tool except `get_systemdesk_status`
+    and `close_systemdesk`.
     
     Precondition: None, may be called at any time.
-    Returns the ApplicationRootDir and the resolved ProgID on success.
+    Returns prog_id, application_root_dir, and a message on success.
 
     Failure codes (error_type / error_code: condition):
     - permanent / WIN32COM_NOT_INSTALLED: win32com not installed
     - permanent / PROGID_NOT_REGISTERED: SystemDesk ProgID not registered
     - permanent / ACCESS_DENIED: access denied
     - transient / BLOCKED_BY_DIALOG: SystemDesk blocked by open dialog
-    - transient / START_FAILED: other failure while starting SystemDesk
+    - permanent / UNEXPECTED_ERROR: other failure while starting SystemDesk
 
     Hint: This tool does not provide a timeout parameter,
     because opening the COM connection has an inherent timeout.
@@ -106,13 +108,14 @@ def start_systemdesk(
                 "Failed to start SystemDesk. "
                 "Ensure SystemDesk is installed and no blocking dialog is open."
             )
-            error_type = "transient"
-            error_code = ErrorCode.START_FAILED
+            error_type = "permanent"
+            error_code = ErrorCode.UNEXPECTED_ERROR
 
         return error_response(message, error_type=error_type, error_code=error_code, details=exc_str)
 
 
 @mcp.tool(
+    title="Close SystemDesk",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": True,
@@ -126,8 +129,8 @@ def start_systemdesk(
 def close_systemdesk(
     save_project: Annotated[bool, Field(
         description=(
-            "If True, the currently open project is saved before SystemDesk is closed. "
-            "Example: True"
+            "If true, the currently open project is saved before SystemDesk is closed. "
+            "Example: true"
         ),
     )] = True,
 ) -> dict[str, Any]:
@@ -136,17 +139,22 @@ def close_systemdesk(
 
     Optionally saves the open project before closing.
     After this call, start_systemdesk must be called again before using other tools.
+    If SystemDesk is not running, this is a no-op and returns success.
 
-    Precondition: start_systemdesk must be called first.
+    Precondition: None, may be called at any time.
     Returns a confirmation message on success.
 
     Failure codes (error_type / error_code: condition):
-    - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
-    - transient / PROJECT_SAVE_FAILED: failed to save project before closing
-    - transient / QUIT_FAILED: Quit call failed (returns immediately)
+    - permanent / UNEXPECTED_ERROR: project save or Quit call failed (returns immediately)
+
+    After an error, call `get_systemdesk_status` to check whether SystemDesk is reported
+    as running and whether an open project has unsaved changes.
     """
+    if runtime._application is None:
+        return success_response({"message": "SystemDesk is not running."})
+
     try:
-        app = runtime.get_app()
+        app = runtime._application
 
         if save_project:
             try:
@@ -156,8 +164,8 @@ def close_systemdesk(
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 return error_response(
                     "Failed to save project before closing SystemDesk.",
-                    error_type="transient",
-                    error_code=ErrorCode.PROJECT_SAVE_FAILED,
+                    error_type="permanent",
+                    error_code=ErrorCode.UNEXPECTED_ERROR,
                     details=str(exc),
                 )
 
@@ -165,18 +173,17 @@ def close_systemdesk(
         runtime._application = None
         return success_response({"message": "SystemDesk closed successfully."})
 
-    except PermanentError as exc:
-        return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return error_response(
             "Failed to close SystemDesk.",
-            error_type="transient",
-            error_code=ErrorCode.QUIT_FAILED,
+            error_type="permanent",
+            error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
 
 
 @mcp.tool(
+    title="Get SystemDesk Status",
     annotations={
         "readOnlyHint": True,
         "destructiveHint": False,
@@ -195,9 +202,9 @@ def get_systemdesk_status() -> dict[str, Any]:
     and whether a project is currently open.
 
     Precondition: None, may be called at any time.
-    Returns running, project_open, and optional project_name.
+    Returns running, project_open, and optional project_name and project_modified.
 
-    Failure codes (error_type / condition): None
+    Failure codes (error_type / error_code: condition): None
     """
 
     if runtime._application is None:
@@ -206,6 +213,7 @@ def get_systemdesk_status() -> dict[str, Any]:
                 "running": False,
                 "project_open": False,
                 "project_name": None,
+                "project_modified": None,
                 "message": "SystemDesk is not running.",
             }
         )
@@ -218,6 +226,7 @@ def get_systemdesk_status() -> dict[str, Any]:
                     "running": True,
                     "project_open": False,
                     "project_name": None,
+                    "project_modified": None,
                     "message": "SystemDesk is running and no project is open.",
                 }
             )
@@ -227,6 +236,7 @@ def get_systemdesk_status() -> dict[str, Any]:
                 "running": True,
                 "project_open": True,
                 "project_name": active_project.Name,
+                "project_modified": active_project.IsModified,
                 "message": "SystemDesk is running and a project is open.",
             }
         )
@@ -238,6 +248,7 @@ def get_systemdesk_status() -> dict[str, Any]:
                 "running": False,
                 "project_open": False,
                 "project_name": None,
+                "project_modified": None,
                 "message": "SystemDesk is not running.",
             }
         )

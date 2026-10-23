@@ -13,7 +13,7 @@ Python MCP server (FastMCP, stdio) that automates dSPACE SystemDesk via its COM 
 - [tests/tools/](tests/tools/): package for domain-specific tool behavior tests; inherits the parent COM fixture.
 - [tests/conftest.py](tests/conftest.py): shared autouse COM application fixture with automatic state restoration.
 - [tests/helpers.py](tests/helpers.py): shared argument validation helpers.
-- [.github/prompts/smoke-test.prompt.md](.github/prompts/smoke-test.prompt.md): end-to-end smoke test against a real SystemDesk installation (requires a license).
+- [.github/skills/smoke-test/SKILL.md](.github/skills/smoke-test/SKILL.md): end-to-end smoke test against a real SystemDesk installation (requires a license).
 
 ## Commands
 
@@ -46,4 +46,4 @@ Tool modules are imported explicitly in `tools/__init__.py`. Add new domain modu
 
 - SystemDesk is started with `BatchMode = True` to suppress dialogs; modal dialogs still cause transient `BLOCKED_BY_DIALOG` failures.
 - On timeout the COM call keeps running on the single worker thread; subsequent calls queue behind it.
-- Bump `__version__` in [src/systemdesk_mcp/__init__.py](src/systemdesk_mcp/__init__.py) and `version` in [pyproject.toml](pyproject.toml) together. The server re-exports the package version.
+- The package version comes only from `version` in [pyproject.toml](pyproject.toml); `__version__` reads it from installed metadata, so run `uv sync` after bumping. The server re-exports the package version.
