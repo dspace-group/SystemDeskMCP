@@ -274,14 +274,14 @@ def create_composition(
     composition_path: Annotated[AutosarElementPath, Field(
         description=(
             "Absolute AUTOSAR path for the new composition, including its package. "
-            "Missing packages are created. Example: '/Generated/TopLevel'"
+            "Missing packages are created. Example: \"/Generated/TopLevel\""
         ),
     )],
     component_paths: Annotated[list[AutosarElementPath], Field(
         min_length=1,
         description=(
             "Absolute AUTOSAR paths of existing SwComponentTypes, in prototype order. "
-            "Duplicates create separate instances. Example: ['/SWA/A', '/SWA/B']"
+            "Duplicates create separate instances. Example: [\"/SWA/A\", \"/SWA/B\"]"
         ),
     )],
 ) -> dict[str, Any]:

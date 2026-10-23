@@ -58,7 +58,7 @@ def create_project(
     If a project with the same name already exists, it will be overwritten.
     Automatically closes any currently open project before creating the new one,
     which can lead to data loss if the current project is not saved;
-    call close_project(save_project=True) first to keep changes.
+    call close_project(save_project=true) first to keep changes.
 
     Precondition: start_systemdesk must be called first.
     Returns project_name and project_file path on success.
@@ -108,7 +108,7 @@ def create_project(
 @on_com_thread
 def close_project(
     save_project: Annotated[bool, Field(
-        description="If True, saves the project before closing it. Example: True",
+        description="If true, saves the project before closing it. Example: true",
     )] = True,
 ) -> dict[str, Any]:
     """
@@ -187,7 +187,7 @@ def open_project(
 
     Automatically closes any currently open project without saving before opening,
     which can lead to data loss if the current project is not saved;
-    call close_project(save_project=True) first to keep changes.
+    call close_project(save_project=true) first to keep changes.
     If project_file is already open, this is a no-op that returns success
     without reloading, so unsaved changes are kept.
 

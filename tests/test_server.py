@@ -94,6 +94,16 @@ async def test_tool_parameters_are_described_and_strict():
             )
 
 
+@pytest.mark.anyio
+async def test_tool_descriptions_list_failure_codes():
+    tools = await _registered_function_tools(srv.mcp)
+
+    for tool in tools:
+        assert "Failure codes (error_type / error_code: condition):" in (tool.description or ""), (
+            f"Tool '{tool.name}': description needs the standard failure-codes header."
+        )
+
+
 def test_version_is_pep440():
     # act
     version = Version(srv.__version__)
