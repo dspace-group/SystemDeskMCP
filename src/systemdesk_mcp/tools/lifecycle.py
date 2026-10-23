@@ -33,7 +33,7 @@ def start_systemdesk(
     and `close_systemdesk`.
     
     Precondition: None, may be called at any time.
-    Returns the ApplicationRootDir and the resolved ProgID on success.
+    Returns prog_id, application_root_dir, and a message on success.
 
     Failure codes (error_type / error_code: condition):
     - permanent / WIN32COM_NOT_INSTALLED: win32com not installed
@@ -129,8 +129,8 @@ def start_systemdesk(
 def close_systemdesk(
     save_project: Annotated[bool, Field(
         description=(
-            "If True, the currently open project is saved before SystemDesk is closed. "
-            "Example: True"
+            "If true, the currently open project is saved before SystemDesk is closed. "
+            "Example: true"
         ),
     )] = True,
 ) -> dict[str, Any]:
@@ -204,7 +204,7 @@ def get_systemdesk_status() -> dict[str, Any]:
     Precondition: None, may be called at any time.
     Returns running, project_open, and optional project_name and project_modified.
 
-    Failure codes (error_type / condition): None
+    Failure codes (error_type / error_code: condition): None
     """
 
     if runtime._application is None:
