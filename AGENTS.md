@@ -47,3 +47,4 @@ Tool modules are imported explicitly in `tools/__init__.py`. Add new domain modu
 - SystemDesk is started with `BatchMode = True` to suppress dialogs; modal dialogs still cause transient `BLOCKED_BY_DIALOG` failures.
 - On timeout the COM call keeps running on the single worker thread; subsequent calls queue behind it.
 - The package version comes only from `version` in [pyproject.toml](pyproject.toml); `__version__` reads it from installed metadata, so run `uv sync` after bumping. The server re-exports the package version.
+- Versioning, API review, and releases follow [MAINTAINERS.md](MAINTAINERS.md).
