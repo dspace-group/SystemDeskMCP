@@ -57,12 +57,12 @@ Recommended flow:
 3. `import_autosar_file(file_path, timeout=60)`
 4. `create_composition(composition_path, component_paths)` (optional)
 5. `validate_autosar(output_format="markdown" | "json", timeout=120)`
-6. `close_project(save_project=True)`
-7. `close_systemdesk(save_project=True)`
+6. `close_project(save_project=True)` (optional, only to close the project)
+7. `close_systemdesk(save_project=True)` (optional, only to quit SystemDesk)
 
 Important:
 
-- `start_systemdesk()` must be called before any other SystemDesk tool.
+- `start_systemdesk()` must be called before tools whose precondition requires it.
 - `import_autosar_file` only supports files with the `.arxml` extension.
 - If SystemDesk shows blocking dialogs, startup/COM access may fail transiently.
 

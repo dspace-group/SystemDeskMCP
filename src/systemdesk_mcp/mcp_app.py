@@ -8,8 +8,9 @@ mcp = FastMCP(
     "SystemDesk MCP Server",
     version=__version__,
     instructions=(
-        "Use start_systemdesk before calling any other tool. "
-        "Use close_systemdesk to release the COM connection when done. "
+        "Call start_systemdesk when a tool's precondition requires it. "
+        "Call close_systemdesk only when SystemDesk should quit; "
+        "the COM connection may stay open otherwise. "
         "AUTOSAR files must use the .arxml extension. "
         "All tools return a JSON dictionary with a 'status' field ('success' or 'error'). "
         "On error, 'error_type' is either 'permanent' (do not retry, halt or escalate) "

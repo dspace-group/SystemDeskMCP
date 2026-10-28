@@ -29,8 +29,7 @@ def start_systemdesk(
     Start SystemDesk and establish a COM connection.
 
     If SystemDesk is already running, reconnects to the existing instance.
-    Must be called before using any other SystemDesk tool except `get_systemdesk_status`
-    and `close_systemdesk`.
+    Required by tools whose precondition says so.
     
     Precondition: None, may be called at any time.
     Returns prog_id, application_root_dir, and a message on success.
@@ -135,10 +134,11 @@ def close_systemdesk(
     )] = True,
 ) -> dict[str, Any]:
     """
-    Close SystemDesk and release the COM connection.
+    Quit SystemDesk and release the COM connection.
 
+    Call only when SystemDesk should be closed; the connection may stay open otherwise.
     Optionally saves the open project before closing.
-    After this call, start_systemdesk must be called again before using other tools.
+    Afterwards, tools whose precondition requires start_systemdesk need it to be called again.
     If SystemDesk is not running, this is a no-op and returns success.
 
     Precondition: None, may be called at any time.
