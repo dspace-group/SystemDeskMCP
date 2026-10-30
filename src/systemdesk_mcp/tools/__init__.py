@@ -1,5 +1,5 @@
 """Register SystemDesk tools by importing their owning modules."""
 
-from . import lifecycle, projects, autosar
+from . import lifecycle, projects, autosar, create_vecu, vecu_export
 
-__all__ = ["lifecycle", "projects", "autosar"]
+__all__ = ["lifecycle", "projects", "autosar", "create_vecu", "vecu_export"]
