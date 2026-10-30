@@ -55,7 +55,7 @@ _com_executor = concurrent.futures.ThreadPoolExecutor(
 def _shutdown_com_executor():
     try:
         def _cleanup():
-            global _application, _last_vecu
+            global _application, _last_vecu  # pylint: disable=global-statement
             _application = None
             _last_vecu = None
             pythoncom.CoUninitialize()
