@@ -16,8 +16,8 @@ from systemdesk_mcp import __version__
 from systemdesk_mcp.common import ErrorCode, PermanentError, error_response
 
 _application = None  # pylint: disable=invalid-name
-_last_vecu = None  # pylint: disable=invalid-name  # V-ECU resolved by get_or_create_vecu_fmu
-_vecu_options = None  # pylint: disable=invalid-name  # options prepared by create_vecu_options
+_last_vecu = None  # pylint: disable=invalid-name
+_vecu_options = None  # pylint: disable=invalid-name
 
 
 def get_app():
@@ -56,7 +56,7 @@ _com_executor = concurrent.futures.ThreadPoolExecutor(
 def _shutdown_com_executor():
     try:
         def _cleanup():
-            global _application, _last_vecu, _vecu_options  # pylint: disable=global-statement
+            global _application, _last_vecu, _vecu_options
             _application = None
             _last_vecu = None
             _vecu_options = None
