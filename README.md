@@ -57,8 +57,10 @@ Recommended flow:
 3. `import_autosar_file(file_path, timeout=60)`
 4. `create_composition(composition_path, component_paths)` (optional)
 5. `validate_autosar(output_format="markdown" | "json", timeout=120)`
-6. `close_project(save_project=True)` (optional, only to close the project)
-7. `close_systemdesk(save_project=True)` (optional, only to quit SystemDesk)
+6. `create_vecu_options(component_name=None, component_type="COMPOSITION-SW-COMPONENT-TYPE", vecu_name=None, system_name=None, predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs (FMI 3.0)", auto_configure_and_generate=False, timeout=60)` (only needed to create a new V-ECU)
+7. `get_or_create_vecu_fmu(vecu_name=None, component_name=None, component_type="COMPOSITION-SW-COMPONENT-TYPE", force_create=False, timeout=120)`
+8. `close_project(save_project=True)` (optional, only to close the project)
+9. `close_systemdesk(save_project=True)` (optional, only to quit SystemDesk)
 
 Important:
 
@@ -100,6 +102,8 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 - `import_autosar_file(file_path, timeout=60)`
 - `create_composition(composition_path, component_paths)`
 - `validate_autosar(output_format="markdown" | "json", timeout=120)`
+- `create_vecu_options(component_name=None, component_type="COMPOSITION-SW-COMPONENT-TYPE", vecu_name=None, system_name=None, predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs (FMI 3.0)", auto_configure_and_generate=False, timeout=60)`
+- `get_or_create_vecu_fmu(vecu_name=None, component_name=None, component_type="COMPOSITION-SW-COMPONENT-TYPE", force_create=False, timeout=120)`
 
 ## Extending the Server
 
