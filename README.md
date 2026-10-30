@@ -57,10 +57,11 @@ Recommended flow:
 3. `import_autosar_file(file_path, timeout=60)`
 4. `create_composition(composition_path, component_paths)` (optional)
 5. `validate_autosar(output_format="markdown" | "json", timeout=120)`
-6. `create_vecu_options(component_name=None, component_type="COMPOSITION-SW-COMPONENT-TYPE", vecu_name=None, system_name=None, predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs (FMI 3.0)", auto_configure_and_generate=False, timeout=60)` (only needed to create a new V-ECU)
-7. `get_or_create_vecu_fmu(vecu_name=None, component_name=None, component_type="COMPOSITION-SW-COMPONENT-TYPE", force_create=True, timeout=120)`
-8. `close_project(save_project=True)` (optional, only to close the project)
-9. `close_systemdesk(save_project=True)` (optional, only to quit SystemDesk)
+6. `get_or_create_vecu(vecu_name=None, reuse_existing_vecu=False, component_path=None, system_name=None, predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs (FMI 3.0)", auto_configure_and_generate=False, timeout=120)` (further optional V-ECU creation options are available)
+7. `generate_vecu_bsw(vecu_name, timeout=120)` (pass the `vecu_name` returned by `get_or_create_vecu`)
+8. `export_vecu_fmu(vecu_name, target_directory=None, timeout=300)`
+9. `close_project(save_project=True)` (optional, only to close the project)
+10. `close_systemdesk(save_project=True)` (optional, only to quit SystemDesk)
 
 Important:
 
@@ -102,8 +103,9 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 - `import_autosar_file(file_path, timeout=60)`
 - `create_composition(composition_path, component_paths)`
 - `validate_autosar(output_format="markdown" | "json", timeout=120)`
-- `create_vecu_options(component_name=None, component_type="COMPOSITION-SW-COMPONENT-TYPE", vecu_name=None, system_name=None, predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs (FMI 3.0)", auto_configure_and_generate=False, timeout=60)`
-- `get_or_create_vecu_fmu(vecu_name=None, component_name=None, component_type="COMPOSITION-SW-COMPONENT-TYPE", force_create=True, timeout=120)`
+- `get_or_create_vecu(vecu_name=None, reuse_existing_vecu=False, component_path=None, system_name=None, predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs (FMI 3.0)", generate_dap_for_atomic_ports=None, generate_dap_for_root_composition_ports=None, create_runnable_mapping=None, rte_calibration_support=None, rte_simulation_logging=None, rte_measurement_support=None, auto_configure_and_generate=False, timeout=120)`
+- `generate_vecu_bsw(vecu_name, timeout=120)`
+- `export_vecu_fmu(vecu_name, target_directory=None, timeout=300)`
 
 ## Extending the Server
 

@@ -1,4 +1,4 @@
-"""V-ECU options creation and V-ECU resolution tools."""
+"""V-ECU resolution and creation tools."""
 # pylint: disable=protected-access
 
 import json
@@ -8,6 +8,8 @@ from pydantic import Field
 
 from systemdesk_mcp import runtime
 from systemdesk_mcp.common import (
+    AutosarElementPath,
+    AutosarShortName,
     ErrorCode,
     PermanentError,
     TimeoutSeconds,
@@ -16,49 +18,28 @@ from systemdesk_mcp.common import (
 )
 from systemdesk_mcp.mcp_app import mcp
 from systemdesk_mcp.runtime import get_app, logged, on_com_thread
+from systemdesk_mcp.tools.autosar import _resolve_component
 
-_COMPOSITION_COMPONENT_TYPE = "COMPOSITION-SW-COMPONENT-TYPE"
+_FALLBACK_COMPONENT_TYPES = (
+    "COMPOSITION-SW-COMPONENT-TYPE",
+    "APPLICATION-SW-COMPONENT-TYPE",
+    "SENSOR-ACTUATOR-SW-COMPONENT-TYPE",
+)
 
 
-def _find_sw_component(active_project, component_name, component_type):
-    """Return the SW component named component_name, else the first one of component_type."""
-    candidate_type_names = (
-        [component_type]
-        if component_type != _COMPOSITION_COMPONENT_TYPE
-        else [
-            _COMPOSITION_COMPONENT_TYPE,
-            "APPLICATION-SW-COMPONENT-TYPE",
-            "SENSOR-ACTUATOR-SW-COMPONENT-TYPE",
-        ]
-    )
+def _find_sw_component(active_project, component_path):
+    """Return the SW component at component_path, else the first one of the fallback types."""
+    if component_path:
+        return _resolve_component(active_project, component_path)
 
-    rswc_type = None
-    if component_name:
-        for type_name in candidate_type_names:
-            components = active_project.FindChildElements(type_name)
-            for component_type_element in components:
-                component_name_value = getattr(component_type_element, "ShortName", None)
-                if component_name_value == component_name and component_name_value != "EcuFlatView":
-                    rswc_type = component_type_element
-                    break
-            if rswc_type is not None:
-                break
-        if rswc_type is None:
-            raise PermanentError(
-                f"No SW component named '{component_name}' was found in the active project.",
-                error_code=ErrorCode.COMPONENT_NOT_FOUND)
-    else:
-        for type_name in candidate_type_names:
-            components = active_project.FindChildElements(type_name)
-            if components:
-                rswc_type = components[0]
-                break
+    for type_name in _FALLBACK_COMPONENT_TYPES:
+        components = active_project.FindChildElements(type_name)
+        if components:
+            return components[0]
 
-    if rswc_type is None:
-        raise PermanentError(
-            "No suitable SW component type was found in the active project.",
-            error_code=ErrorCode.COMPONENT_NOT_FOUND)
-    return rswc_type
+    raise PermanentError(
+        "No suitable SW component type was found in the active project.",
+        error_code=ErrorCode.COMPONENT_NOT_FOUND)
 
 
 def _get_active_project():
@@ -94,35 +75,78 @@ def _collect_vecu_creation_messages() -> list[dict[str, Any]]:
     return collected
 
 
+
+
+def _create_vecu_options(rswc_type, vecu_name, system_name, settings: dict[str, Any]):
+    """Return fresh V-ECU creation options for rswc_type with the given settings applied."""
+    v_ecu_options = rswc_type.GetNewCreateVEcuOptions()
+    if vecu_name is not None and getattr(v_ecu_options, "Ecu", None):
+        prefix, _, _ = v_ecu_options.Ecu.rpartition("/")
+        v_ecu_options.Ecu = prefix + "/" + vecu_name if prefix else vecu_name
+    if system_name is not None:
+        v_ecu_options.SystemName = system_name
+    for attribute, value in settings.items():
+        if value is not None:
+            setattr(v_ecu_options, attribute, value)
+    return v_ecu_options
+
+
+def _find_vecu(active_project, vecu_name, reuse_existing_vecu):
+    """Return the V-ECU named vecu_name, else the first V-ECU if reuse is requested, or None."""
+    if vecu_name:
+        try:
+            return active_project.VEcus.Item(vecu_name)
+        except Exception:  # pylint: disable=broad-exception-caught
+            return None
+    if not reuse_existing_vecu:
+        return None
+    existing_vecus = active_project.VEcus.Elements
+    return existing_vecus[0] if existing_vecus else None
+
+
+def _vecu_response(v_ecu_obj: Any) -> dict[str, Any]:
+    return {
+        "vecu_name": getattr(v_ecu_obj, "Name", None),
+        "system_path": getattr(getattr(v_ecu_obj, "System", None), "AUTOSARPathName", None),
+        "ecu_configuration": getattr(v_ecu_obj, "EcuConfiguration", None),
+    }
+
+
 @mcp.tool(
+    title="Get or Create V-ECU",
     annotations={
         "readOnlyHint": False,
-        "destructiveHint": True,
-        "idempotentHint": True,
+        "destructiveHint": False,
+        "idempotentHint": False,
         "openWorldHint": False,
     },
     output_schema=None
 )
 @logged
 @on_com_thread
-def create_vecu_options(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
-    component_name: Annotated[Optional[str], Field(
+def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+    vecu_name: Annotated[Optional[AutosarShortName], Field(
         description=(
-            "SW component to create the V-ECU from. Defaults to the first component of component_type. "
-            "Example: 'MyComposition'"
+            "AUTOSAR short name of the V-ECU to reuse if it exists, otherwise of the V-ECU to create. "
+            "If omitted, a new V-ECU with the SystemDesk default name is created "
+            "(see reuse_existing_vecu). Example: 'MyVEcu'"
         ),
     )] = None,
-    component_type: Annotated[str, Field(
+    reuse_existing_vecu: Annotated[bool, Field(
         description=(
-            "AUTOSAR SW component type to search. "
-            "Example: 'APPLICATION-SW-COMPONENT-TYPE'"
+            "Only relevant if vecu_name is omitted. Set to true only if the user explicitly asks to use "
+            "an existing V-ECU; the first V-ECU in the project is then reused. Example: false"
         ),
-    )] = _COMPOSITION_COMPONENT_TYPE,
-    vecu_name: Annotated[Optional[str], Field(
-        description="Name of the V-ECU to create. Example: 'MyVEcu'",
+    )] = False,
+    component_path: Annotated[Optional[AutosarElementPath], Field(
+        description=(
+            "Absolute AUTOSAR path of the SwComponentType to create the V-ECU from, e.g. a composition "
+            "created by create_composition. Defaults to the first composition, else the first application, "
+            "else the first sensor-actuator SW component type in the project. Example: '/SWA/MyComposition'"
+        ),
     )] = None,
-    system_name: Annotated[Optional[str], Field(
-        description="Name of the system to create. Example: 'MySystem'",
+    system_name: Annotated[Optional[AutosarShortName], Field(
+        description="AUTOSAR short name of the system to create. Example: 'MySystem'",
     )] = None,
     predefined_ecu_configuration: Annotated[Literal[
         "Default ECU Configuration for V-ECU FMUs (FMI 2.0)",
@@ -140,13 +164,13 @@ def create_vecu_options(  # pylint: disable=too-many-arguments,too-many-position
         ),
     )] = "Default ECU Configuration for V-ECU FMUs (FMI 3.0)",
     generate_dap_for_atomic_ports: Annotated[Optional[bool], Field(
-        description="Generate DAP for atomic ports. Example: True",
+        description="Generate DAP for atomic ports. Example: true",
     )] = None,
     generate_dap_for_root_composition_ports: Annotated[Optional[bool], Field(
-        description="Generate DAP for root composition ports. Example: True",
+        description="Generate DAP for root composition ports. Example: true",
     )] = None,
     create_runnable_mapping: Annotated[Optional[bool], Field(
-        description="Create the runnable mapping. Example: True",
+        description="Create the runnable mapping. Example: true",
     )] = None,
     rte_calibration_support: Annotated[Optional[Literal["INITIALIZED_RAM", "NONE", "OFFLINE"]], Field(
         description=(
@@ -165,113 +189,10 @@ def create_vecu_options(  # pylint: disable=too-many-arguments,too-many-position
         ),
     )] = None,
     rte_measurement_support: Annotated[Optional[bool], Field(
-        description="Enable RTE measurement support. Example: True",
+        description="Enable RTE measurement support. Example: true",
     )] = None,
     auto_configure_and_generate: Annotated[bool, Field(
-        description="Whether to auto-configure and generate the V-ECU. Example: False",
-    )] = False,
-    timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
-        description="Maximum number of seconds to wait for the options to be created. Example: 60",
-    )] = 60,
-) -> dict[str, Any]:
-    """
-    Build the V-ECU creation options for a SW component.
-
-    Required before get_or_create_vecu_fmu can create a new V-ECU.
-    The component is component_name if given, else the first component of component_type.
-    With the default composition type, application and then sensor-actuator types are
-    searched too if no composition exists. Options left unset keep the SystemDesk defaults.
-    Pass the same component_name/component_type to get_or_create_vecu_fmu.
-
-    Preconditions: start_systemdesk must be called first; a project must be open.
-    Returns the component name and a confirmation message on success.
-
-    Failure codes (error_type / error_code: condition):
-    - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
-    - permanent / NO_PROJECT_OPEN: no project currently open
-    - permanent / COMPONENT_NOT_FOUND: component_name given but no such component exists,
-      or no suitable SW component found
-    - transient / TIMEOUT: options creation timed out
-    - transient / VECU_OPTIONS_CREATION_FAILED: options creation call failed
-    """
-    try:
-        active_project = _get_active_project()
-
-        rswc_type = _find_sw_component(active_project, component_name, component_type)
-
-        v_ecu_options = rswc_type.GetNewCreateVEcuOptions()
-        if vecu_name is not None and getattr(v_ecu_options, "Ecu", None):
-            prefix, _, _ = v_ecu_options.Ecu.rpartition("/")
-            v_ecu_options.Ecu = prefix + "/" + vecu_name if prefix else vecu_name
-        if system_name is not None:
-            v_ecu_options.SystemName = system_name
-        v_ecu_options.PredefinedEcuConfiguration = predefined_ecu_configuration
-        if generate_dap_for_atomic_ports is not None:
-            v_ecu_options.GenerateDapForAtomicPorts = generate_dap_for_atomic_ports
-        if generate_dap_for_root_composition_ports is not None:
-            v_ecu_options.GenerateDapForRootCompositionPorts = generate_dap_for_root_composition_ports
-        if create_runnable_mapping is not None:
-            v_ecu_options.CreateRunnableMapping = create_runnable_mapping
-        if rte_calibration_support is not None:
-            v_ecu_options.RteCalibrationSupport = rte_calibration_support
-        if rte_simulation_logging is not None:
-            v_ecu_options.RteSimulationLogging = rte_simulation_logging
-        if rte_measurement_support is not None:
-            v_ecu_options.RteMeasurementSupport = rte_measurement_support
-        v_ecu_options.AutoConfigureAndGenerate = auto_configure_and_generate
-
-        runtime._vecu_options = v_ecu_options
-
-        return success_response({
-            "component_name": getattr(rswc_type, "ShortName", None),
-            "message": "V-ECU options created. Call get_or_create_vecu_fmu to create the V-ECU.",
-        })
-
-    except PermanentError as exc:
-        return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        return error_response(
-            "Failed to create the V-ECU options.",
-            error_type="transient",
-            error_code=ErrorCode.VECU_OPTIONS_CREATION_FAILED,
-            details=str(exc),
-        )
-
-
-def _vecu_response(v_ecu_obj: Any) -> dict[str, Any]:
-    return {
-        "vecu_name": getattr(v_ecu_obj, "Name", None),
-        "system_path": getattr(getattr(v_ecu_obj, "System", None), "AUTOSARPathName", None),
-        "ecu_configuration": getattr(v_ecu_obj, "EcuConfiguration", None),
-    }
-
-
-@mcp.tool(
-    annotations={
-        "readOnlyHint": False,
-        "destructiveHint": True,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
-    output_schema=None
-)
-@logged
-@on_com_thread
-def get_or_create_vecu_fmu(
-    vecu_name: Annotated[Optional[str], Field(
-        description="Existing V-ECU to reuse. Example: 'MyVEcu'",
-    )] = None,
-    component_name: Annotated[Optional[str], Field(
-        description="SW component to create the V-ECU from. Example: 'MyComposition'",
-    )] = None,
-    component_type: Annotated[str, Field(
-        description=(
-            "AUTOSAR SW component type to search. "
-            "Example: 'APPLICATION-SW-COMPONENT-TYPE'"
-        ),
-    )] = _COMPOSITION_COMPONENT_TYPE,
-    force_create: Annotated[bool, Field(
-        description="Create a new V-ECU even if one exists. Example: False",
+        description="Whether to auto-configure and generate the V-ECU. Example: false",
     )] = False,
     timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
         description="Maximum number of seconds to wait for V-ECU lookup/creation to complete. Example: 120",
@@ -280,59 +201,63 @@ def get_or_create_vecu_fmu(
     """
     Resolve the V-ECU to work with: reuse an existing one or create a new one.
 
-    Reuse (skipped if force_create): vecu_name if given, else the first V-ECU in the project.
-    Creation: from the component found as in create_vecu_options, using the options prepared
-    by that tool (required for creation, not needed for reuse).
+    Reuse: vecu_name if it exists. Without vecu_name, the first V-ECU in the project is reused
+    only if reuse_existing_vecu is true.
+    Creation (no V-ECU reused): from component_path if given, else the first composition,
+    application, or sensor-actuator SW component type (in this order). The new V-ECU is named
+    vecu_name if given. The creation options (system_name, predefined_ecu_configuration, ...)
+    only apply to creation; options left unset keep the SystemDesk defaults.
+    Creation is additive: SystemDesk creates the V-ECU elements in a new package and never
+    overwrites existing elements, even if system_name or vecu_name clash with existing names.
+    Repeated calls: with vecu_name, later calls reuse the V-ECU created by the first call.
+    Without vecu_name and with reuse_existing_vecu false, each call creates a new V-ECU.
 
     Preconditions: start_systemdesk must be called first; a project must be open.
-    Returns the resolved V-ECU name, system path, ECU configuration, and whether it was newly created.
+    Returns the resolved V-ECU name, system path, ECU configuration, and whether it was newly created;
+    on creation also the component_path the V-ECU was created from.
 
     Failure codes (error_type / error_code: condition):
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
     - permanent / NO_PROJECT_OPEN: no project currently open
-    - permanent / VECU_NOT_FOUND: vecu_name given but no V-ECU with that name exists
-    - permanent / VECU_OPTIONS_MISSING: create_vecu_options not called yet (when creation is needed)
-    - permanent / COMPONENT_NOT_FOUND: component_name given but no such component exists,
-      or no suitable SW component found (when creation is needed)
+    - permanent / AUTOSAR_ELEMENT_NOT_FOUND: component_path does not exist
+    - permanent / AMBIGUOUS_AUTOSAR_PATH: component_path resolves to multiple elements
+    - permanent / INVALID_AUTOSAR_ELEMENT_TYPE: component_path is not a SwComponentType
+    - permanent / COMPONENT_NOT_FOUND: no component_path given and no suitable SW component found
+      (when creation is needed)
+    - permanent / VECU_CREATION_FAILED: SystemDesk rejected the V-ECU creation (see details)
     - transient / TIMEOUT: V-ECU lookup or creation timed out
-    - transient / VECU_CREATION_FAILED: V-ECU lookup or creation failed
+    - permanent / UNEXPECTED_ERROR: V-ECU lookup or creation call failed
     """
     try:
         active_project = _get_active_project()
 
-        if not force_create:
-            if vecu_name:
-                try:
-                    v_ecu = active_project.VEcus.Item(vecu_name)
-                except Exception as exc:
-                    raise PermanentError(
-                        f"No V-ECU named '{vecu_name}' was found in the active project.",
-                        error_code=ErrorCode.VECU_NOT_FOUND) from exc
-            else:
-                existing_vecus = active_project.VEcus.Elements
-                v_ecu = existing_vecus[0] if existing_vecus else None
+        v_ecu = _find_vecu(active_project, vecu_name, reuse_existing_vecu)
+        if v_ecu is not None:
+            runtime._last_vecu = v_ecu
+            return success_response({
+                **_vecu_response(v_ecu),
+                "created": False,
+                "message": f"Reusing existing V-ECU '{getattr(v_ecu, 'Name', None)}'.",
+            })
 
-            if v_ecu is not None:
-                runtime._last_vecu = v_ecu
-                return success_response({
-                    **_vecu_response(v_ecu),
-                    "created": False,
-                    "message": f"Reusing existing V-ECU '{getattr(v_ecu, 'Name', None)}'.",
-                })
+        rswc_type = _find_sw_component(active_project, component_path)
+        v_ecu_options = _create_vecu_options(rswc_type, vecu_name, system_name, {
+            "PredefinedEcuConfiguration": predefined_ecu_configuration,
+            "GenerateDapForAtomicPorts": generate_dap_for_atomic_ports,
+            "GenerateDapForRootCompositionPorts": generate_dap_for_root_composition_ports,
+            "CreateRunnableMapping": create_runnable_mapping,
+            "RteCalibrationSupport": rte_calibration_support,
+            "RteSimulationLogging": rte_simulation_logging,
+            "RteMeasurementSupport": rte_measurement_support,
+            "AutoConfigureAndGenerate": auto_configure_and_generate,
+        })
 
-        if runtime._vecu_options is None:
-            raise PermanentError(
-                "No V-ECU options are available to create a V-ECU. Call create_vecu_options first.",
-                error_code=ErrorCode.VECU_OPTIONS_MISSING)
-
-        rswc_type = _find_sw_component(active_project, component_name, component_type)
-
-        v_ecu = rswc_type.CreateVEcu(runtime._vecu_options)
+        v_ecu = rswc_type.CreateVEcu(v_ecu_options)
         if v_ecu is None:
             collected = _collect_vecu_creation_messages()
             return error_response(
                 "V-ECU creation failed. SystemDesk reported the following issue(s):",
-                error_type="transient",
+                error_type="permanent",
                 error_code=ErrorCode.VECU_CREATION_FAILED,
                 details=json.dumps(collected, default=str) if collected else None,
             )
@@ -342,6 +267,7 @@ def get_or_create_vecu_fmu(
         return success_response({
             **_vecu_response(v_ecu),
             "created": True,
+            "component_path": getattr(rswc_type, "AUTOSARPathName", None),
             "message": "V-ECU created successfully.",
         })
 
@@ -350,7 +276,7 @@ def get_or_create_vecu_fmu(
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return error_response(
             "Failed to get or create the V-ECU.",
-            error_type="transient",
-            error_code=ErrorCode.VECU_CREATION_FAILED,
+            error_type="permanent",
+            error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )

@@ -13,5 +13,4 @@ def app(monkeypatch):
     mock = MagicMock()
     monkeypatch.setattr(runtime, "_application", mock)
     monkeypatch.setattr(runtime, "_last_vecu", None)
-    monkeypatch.setattr(runtime, "_vecu_options", None)
     return mock

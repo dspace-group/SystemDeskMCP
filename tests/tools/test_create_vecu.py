@@ -13,9 +13,13 @@ from systemdesk_mcp import common, runtime
 from tests.helpers import validate_args
 
 
-def _component(short_name):
+def _component(short_name, options=None, v_ecu=None, autosar_type="COMPOSITION-SW-COMPONENT-TYPE"):
     component = MagicMock()
     component.ShortName = short_name
+    component.AUTOSARPathName = f"/SWA/{short_name}"
+    component.AutosarType = autosar_type
+    component.GetNewCreateVEcuOptions.return_value = options if options is not None else SimpleNamespace()
+    component.CreateVEcu.return_value = v_ecu
     return component
 
 
@@ -47,36 +51,186 @@ def _set_components(app, components_by_type):
     app.ActiveProject.FindChildElements.side_effect = lambda type_name: components_by_type.get(type_name, [])
 
 
-def test_create_vecu_options_success_composition(app):
+def _set_elements_by_path(app, elements_by_path):
+    app.ActiveProject.GetElementsByARPath.side_effect = lambda path: elements_by_path.get(path, [])
+
+
+def _set_no_vecus(app):
+    app.ActiveProject.VEcus.Elements = []
+    app.ActiveProject.VEcus.Item.side_effect = RuntimeError("not found")
+
+
+def test_no_project_open(app):
     # arrange
-    composition = _component("RootComposition")
-    options = SimpleNamespace(Ecu="/Ecus/DefaultEcu")
-    composition.GetNewCreateVEcuOptions.return_value = options
-    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
+    app.ActiveProject = None
 
     # act
-    result = create_vecu.create_vecu_options()
+    result = create_vecu.get_or_create_vecu()
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "NO_PROJECT_OPEN"
+    assert "no project is currently open" in result["message"].lower()
+
+
+def test_not_started():
+    # arrange
+    runtime._application = None
+
+    # act
+    result = create_vecu.get_or_create_vecu()
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "SYSTEMDESK_NOT_RUNNING"
+
+
+def test_get_or_create_vecu_reuses_vecu_by_name(app):
+    # arrange
+    v_ecu = _vecu("MyVEcu")
+    app.ActiveProject.VEcus.Item.return_value = v_ecu
+
+    # act
+    result = create_vecu.get_or_create_vecu(vecu_name="MyVEcu")
 
     # assert
     assert result["status"] == "success"
-    assert result["component_name"] == "RootComposition"
-    assert "get_or_create_vecu_fmu" in result["message"]
-    assert runtime._vecu_options is options
-    assert options.PredefinedEcuConfiguration == "Default ECU Configuration for V-ECU FMUs (FMI 3.0)"
-    assert options.AutoConfigureAndGenerate is False
-    assert options.Ecu == "/Ecus/DefaultEcu"
-    app.ActiveProject.FindChildElements.assert_called_once_with("COMPOSITION-SW-COMPONENT-TYPE")
+    assert result["created"] is False
+    assert result["vecu_name"] == "MyVEcu"
+    assert result["system_path"] == "/Systems/MyVEcu_System"
+    assert result["ecu_configuration"] == "MyVEcu_EcuConfiguration"
+    assert result["message"] == "Reusing existing V-ECU 'MyVEcu'."
+    assert runtime._last_vecu is v_ecu
+    app.ActiveProject.VEcus.Item.assert_called_once_with("MyVEcu")
+    app.ActiveProject.FindChildElements.assert_not_called()
 
 
-def test_create_vecu_options_applies_all_given_options(app):
+def test_get_or_create_vecu_reuses_first_vecu_when_requested(app):
     # arrange
-    composition = _component("RootComposition")
-    options = SimpleNamespace(Ecu="/Ecus/DefaultEcu")
-    composition.GetNewCreateVEcuOptions.return_value = options
+    first = _vecu("FirstVEcu")
+    second = _vecu("SecondVEcu")
+    app.ActiveProject.VEcus.Elements = [first, second]
+
+    # act
+    result = create_vecu.get_or_create_vecu(reuse_existing_vecu=True)
+
+    # assert
+    assert result["status"] == "success"
+    assert result["created"] is False
+    assert result["vecu_name"] == "FirstVEcu"
+    assert result["message"] == "Reusing existing V-ECU 'FirstVEcu'."
+    assert runtime._last_vecu is first
+    app.ActiveProject.VEcus.Item.assert_not_called()
+    app.ActiveProject.FindChildElements.assert_not_called()
+
+
+def test_get_or_create_vecu_without_name_creates_new_vecu_by_default(app):
+    # arrange
+    app.ActiveProject.VEcus.Elements = [_vecu("ExistingVEcu")]
+    composition = _component("RootComposition", v_ecu=_vecu("NewVEcu"))
     _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
 
     # act
-    result = create_vecu.create_vecu_options(
+    result = create_vecu.get_or_create_vecu()
+
+    # assert
+    assert result["status"] == "success"
+    assert result["created"] is True
+    assert result["vecu_name"] == "NewVEcu"
+    composition.CreateVEcu.assert_called_once()
+    app.ActiveProject.VEcus.Item.assert_not_called()
+
+
+def test_get_or_create_vecu_reuse_requested_but_no_vecu_creates_one(app):
+    # arrange
+    _set_no_vecus(app)
+    composition = _component("RootComposition", v_ecu=_vecu("NewVEcu"))
+    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
+
+    # act
+    result = create_vecu.get_or_create_vecu(reuse_existing_vecu=True)
+
+    # assert
+    assert result["status"] == "success"
+    assert result["created"] is True
+    composition.CreateVEcu.assert_called_once()
+
+
+def test_get_or_create_vecu_reuse_ignores_creation_options(app):
+    # arrange
+    app.ActiveProject.VEcus.Item.return_value = _vecu("MyVEcu")
+
+    # act
+    result = create_vecu.get_or_create_vecu(
+        vecu_name="MyVEcu",
+        component_path="/SWA/Missing",
+        predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs (FMI 2.0)",
+    )
+
+    # assert
+    assert result["status"] == "success"
+    assert result["created"] is False
+    app.ActiveProject.FindChildElements.assert_not_called()
+    app.ActiveProject.GetElementsByARPath.assert_not_called()
+
+
+def test_get_or_create_vecu_creates_vecu_with_defaults(app):
+    # arrange
+    _set_no_vecus(app)
+    options = SimpleNamespace(Ecu="/Ecus/DefaultEcu")
+    v_ecu = _vecu("NewVEcu")
+    composition = _component("RootComposition", options=options, v_ecu=v_ecu)
+    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
+
+    # act
+    result = create_vecu.get_or_create_vecu()
+
+    # assert
+    assert result["status"] == "success"
+    assert result["created"] is True
+    assert result["vecu_name"] == "NewVEcu"
+    assert result["system_path"] == "/Systems/NewVEcu_System"
+    assert result["ecu_configuration"] == "NewVEcu_EcuConfiguration"
+    assert result["message"] == "V-ECU created successfully."
+    assert result["component_path"] == "/SWA/RootComposition"
+    composition.CreateVEcu.assert_called_once_with(options)
+    assert vars(options) == {
+        "Ecu": "/Ecus/DefaultEcu",
+        "PredefinedEcuConfiguration": "Default ECU Configuration for V-ECU FMUs (FMI 3.0)",
+        "AutoConfigureAndGenerate": False,
+    }
+    assert runtime._last_vecu is v_ecu
+    app.ActiveProject.FindChildElements.assert_called_once_with("COMPOSITION-SW-COMPONENT-TYPE")
+
+
+def test_get_or_create_vecu_creates_named_vecu_when_name_not_found(app):
+    # arrange
+    _set_no_vecus(app)
+    options = SimpleNamespace(Ecu="/Ecus/DefaultEcu")
+    composition = _component("RootComposition", options=options, v_ecu=_vecu("NewVEcu"))
+    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
+
+    # act
+    result = create_vecu.get_or_create_vecu(vecu_name="NewVEcu")
+
+    # assert
+    assert result["status"] == "success"
+    assert result["created"] is True
+    assert options.Ecu == "/Ecus/NewVEcu"
+    app.ActiveProject.VEcus.Item.assert_called_once_with("NewVEcu")
+
+
+def test_get_or_create_vecu_applies_all_given_options(app):
+    # arrange
+    _set_no_vecus(app)
+    options = SimpleNamespace(Ecu="/Ecus/DefaultEcu")
+    composition = _component("RootComposition", options=options, v_ecu=_vecu("NewVEcu"))
+    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
+
+    # act
+    result = create_vecu.get_or_create_vecu(
         vecu_name="NewVEcu",
         system_name="NewSystem",
         predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs with CAN Driver (FMI 2.0)",
@@ -105,37 +259,74 @@ def test_create_vecu_options_applies_all_given_options(app):
     }
 
 
-def test_create_vecu_options_vecu_name_without_ecu_prefix(app):
+def test_get_or_create_vecu_vecu_name_without_ecu_prefix(app):
     # arrange
-    composition = _component("RootComposition")
+    _set_no_vecus(app)
     options = SimpleNamespace(Ecu="DefaultEcu")
-    composition.GetNewCreateVEcuOptions.return_value = options
+    composition = _component("RootComposition", options=options, v_ecu=_vecu("NewVEcu"))
     _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
 
     # act
-    result = create_vecu.create_vecu_options(vecu_name="NewVEcu")
+    result = create_vecu.get_or_create_vecu(vecu_name="NewVEcu")
 
     # assert
     assert result["status"] == "success"
     assert options.Ecu == "NewVEcu"
 
 
-def test_create_vecu_options_selects_component_by_name(app):
+def test_get_or_create_vecu_creates_fresh_options_per_call(app):
     # arrange
-    first = _component("FirstComposition")
-    second = _component("SecondComposition")
-    options = SimpleNamespace()
-    second.GetNewCreateVEcuOptions.return_value = options
-    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [first, second]})
+    _set_no_vecus(app)
+    composition = _component("RootComposition", v_ecu=_vecu("NewVEcu"))
+    first_options = SimpleNamespace()
+    second_options = SimpleNamespace()
+    composition.GetNewCreateVEcuOptions.side_effect = [first_options, second_options]
+    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
 
     # act
-    result = create_vecu.create_vecu_options(component_name="SecondComposition")
+    create_vecu.get_or_create_vecu(system_name="FirstSystem")
+    create_vecu.get_or_create_vecu()
+
+    # assert
+    assert composition.CreateVEcu.call_args_list[0].args == (first_options,)
+    assert composition.CreateVEcu.call_args_list[1].args == (second_options,)
+    assert not hasattr(second_options, "SystemName")
+
+
+def test_get_or_create_vecu_selects_component_by_path(app):
+    # arrange
+    _set_no_vecus(app)
+    first = _component("FirstComposition")
+    second = _component("SecondComposition", v_ecu=_vecu("NewVEcu"))
+    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [first, second]})
+    _set_elements_by_path(app, {"/SWA/SecondComposition": [second]})
+
+    # act
+    result = create_vecu.get_or_create_vecu(component_path="/SWA/SecondComposition")
 
     # assert
     assert result["status"] == "success"
-    assert result["component_name"] == "SecondComposition"
+    assert result["component_path"] == "/SWA/SecondComposition"
     first.GetNewCreateVEcuOptions.assert_not_called()
-    assert runtime._vecu_options is options
+    first.CreateVEcu.assert_not_called()
+    second.CreateVEcu.assert_called_once()
+    app.ActiveProject.FindChildElements.assert_not_called()
+
+
+def test_get_or_create_vecu_accepts_path_of_any_sw_component_type(app):
+    # arrange
+    _set_no_vecus(app)
+    application = _component(
+        "AppComponent", v_ecu=_vecu("NewVEcu"), autosar_type="APPLICATION-SW-COMPONENT-TYPE",
+    )
+    _set_elements_by_path(app, {"/SWA/AppComponent": [application]})
+
+    # act
+    result = create_vecu.get_or_create_vecu(component_path="/SWA/AppComponent")
+
+    # assert
+    assert result["status"] == "success"
+    application.CreateVEcu.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -145,265 +336,189 @@ def test_create_vecu_options_selects_component_by_name(app):
         ("SENSOR-ACTUATOR-SW-COMPONENT-TYPE", "SensorActuator"),
     ],
 )
-def test_create_vecu_options_falls_back_to_other_component_types(app, type_name, component_name):
+def test_get_or_create_vecu_falls_back_to_other_component_types(app, type_name, component_name):
     # arrange
-    component = _component(component_name)
-    component.GetNewCreateVEcuOptions.return_value = SimpleNamespace()
+    _set_no_vecus(app)
+    component = _component(component_name, v_ecu=_vecu("NewVEcu"))
     _set_components(app, {type_name: [component]})
 
     # act
-    result = create_vecu.create_vecu_options()
+    result = create_vecu.get_or_create_vecu()
 
     # assert
     assert result["status"] == "success"
-    assert result["component_name"] == component_name
+    component.CreateVEcu.assert_called_once()
     searched = [call.args[0] for call in app.ActiveProject.FindChildElements.call_args_list]
     assert searched[0] == "COMPOSITION-SW-COMPONENT-TYPE"
     assert searched[-1] == type_name
 
 
-def test_create_vecu_options_explicit_component_type_is_searched_alone(app):
+def test_get_or_create_vecu_new_name_creates_additional_vecu(app):
     # arrange
-    application = _component("AppComponent")
-    application.GetNewCreateVEcuOptions.return_value = SimpleNamespace()
-    _set_components(app, {
-        "COMPOSITION-SW-COMPONENT-TYPE": [_component("RootComposition")],
-        "APPLICATION-SW-COMPONENT-TYPE": [application],
-    })
+    app.ActiveProject.VEcus.Elements = [_vecu("ExistingVEcu")]
+    app.ActiveProject.VEcus.Item.side_effect = RuntimeError("not found")
+    composition = _component("RootComposition", v_ecu=_vecu("NewVEcu"))
+    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
 
     # act
-    result = create_vecu.create_vecu_options(component_type="APPLICATION-SW-COMPONENT-TYPE")
+    result = create_vecu.get_or_create_vecu(vecu_name="NewVEcu")
 
     # assert
     assert result["status"] == "success"
-    assert result["component_name"] == "AppComponent"
-    app.ActiveProject.FindChildElements.assert_called_once_with("APPLICATION-SW-COMPONENT-TYPE")
+    assert result["created"] is True
+    assert result["vecu_name"] == "NewVEcu"
+    composition.CreateVEcu.assert_called_once()
 
 
-def test_create_vecu_options_component_name_not_found(app):
+@pytest.mark.parametrize(
+    "arguments",
+    [{"vecu_name": "NewVEcu"}, {"reuse_existing_vecu": True}],
+)
+def test_get_or_create_vecu_repeated_call_reuses_created_vecu(app, arguments):
     # arrange
-    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [_component("RootComposition")]})
+    created = _vecu("NewVEcu")
+    vecus = {}
+    app.ActiveProject.VEcus.Elements = []
+
+    def _item(name):
+        if name not in vecus:
+            raise RuntimeError("not found")
+        return vecus[name]
+
+    def _create(_options):
+        vecus[created.Name] = created
+        app.ActiveProject.VEcus.Elements = [created]
+        return created
+
+    app.ActiveProject.VEcus.Item.side_effect = _item
+    composition = _component("RootComposition")
+    composition.CreateVEcu.side_effect = _create
+    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
 
     # act
-    result = create_vecu.create_vecu_options(component_name="Missing")
+    first = create_vecu.get_or_create_vecu(**arguments)
+    second = create_vecu.get_or_create_vecu(**arguments)
+
+    # assert
+    assert first["created"] is True
+    assert second["status"] == "success"
+    assert second["created"] is False
+    assert second["vecu_name"] == "NewVEcu"
+    composition.CreateVEcu.assert_called_once()
+
+
+def test_get_or_create_vecu_repeated_call_without_name_creates_new_vecu_each_time(app):
+    # arrange
+    _set_no_vecus(app)
+    composition = _component("RootComposition")
+    composition.CreateVEcu.side_effect = [_vecu("VEcu"), _vecu("VEcu_1")]
+    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
+
+    # act
+    first = create_vecu.get_or_create_vecu()
+    second = create_vecu.get_or_create_vecu()
+
+    # assert
+    assert first["created"] is True
+    assert second["created"] is True
+    assert second["vecu_name"] == "VEcu_1"
+    assert composition.CreateVEcu.call_count == 2
+
+
+@pytest.mark.parametrize("removed_argument", [
+    {"force_create": True},
+    {"component_name": "MyComposition"},
+    {"component_type": "APPLICATION-SW-COMPONENT-TYPE"},
+])
+def test_get_or_create_vecu_removed_arguments_are_rejected_by_schema(removed_argument):
+    with pytest.raises(ValidationError):
+        validate_args(create_vecu.get_or_create_vecu, **removed_argument)
+
+
+@pytest.mark.parametrize("component_path", ["MyComposition", "/MyComposition", "/SWA/", "/SWA/1Invalid"])
+def test_get_or_create_vecu_invalid_component_path_rejected_by_schema(component_path):
+    with pytest.raises(ValidationError):
+        validate_args(create_vecu.get_or_create_vecu, component_path=component_path)
+
+
+@pytest.mark.parametrize("argument", ["vecu_name", "system_name"])
+@pytest.mark.parametrize("name", ["", "1Invalid", "My VEcu", "My-VEcu", "/MyVEcu", "A" * 129])
+def test_get_or_create_vecu_invalid_short_name_rejected_by_schema(argument, name):
+    with pytest.raises(ValidationError):
+        validate_args(create_vecu.get_or_create_vecu, **{argument: name})
+
+
+@pytest.mark.parametrize("argument", ["vecu_name", "system_name"])
+@pytest.mark.parametrize("name", ["A", "MyVEcu", "My_VEcu_2", "A" * 128])
+def test_get_or_create_vecu_valid_short_name_accepted_by_schema(argument, name):
+    validate_args(create_vecu.get_or_create_vecu, **{argument: name})
+
+
+def test_get_or_create_vecu_component_path_not_found(app):
+    # arrange
+    _set_no_vecus(app)
+    _set_elements_by_path(app, {})
+
+    # act
+    result = create_vecu.get_or_create_vecu(component_path="/SWA/Missing")
 
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
-    assert result["error_code"] == "COMPONENT_NOT_FOUND"
-    assert "'Missing'" in result["message"]
-    assert runtime._vecu_options is None
+    assert result["error_code"] == "AUTOSAR_ELEMENT_NOT_FOUND"
+    assert "'/SWA/Missing'" in result["message"]
+    assert runtime._last_vecu is None
 
 
-def test_create_vecu_options_ecu_flat_view_is_not_selectable_by_name(app):
+def test_get_or_create_vecu_component_path_ambiguous(app):
     # arrange
-    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [_component("EcuFlatView")]})
+    _set_no_vecus(app)
+    _set_elements_by_path(app, {"/SWA/Twin": [_component("Twin"), _component("Twin")]})
 
     # act
-    result = create_vecu.create_vecu_options(component_name="EcuFlatView")
+    result = create_vecu.get_or_create_vecu(component_path="/SWA/Twin")
 
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
-    assert result["error_code"] == "COMPONENT_NOT_FOUND"
+    assert result["error_code"] == "AMBIGUOUS_AUTOSAR_PATH"
 
 
-def test_create_vecu_options_no_suitable_component(app):
+def test_get_or_create_vecu_component_path_is_not_a_sw_component_type(app):
     # arrange
+    _set_no_vecus(app)
+    package = _component("SWA", autosar_type="AR-PACKAGE")
+    _set_elements_by_path(app, {"/SWA/Pkg": [package]})
+
+    # act
+    result = create_vecu.get_or_create_vecu(component_path="/SWA/Pkg")
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "INVALID_AUTOSAR_ELEMENT_TYPE"
+    package.CreateVEcu.assert_not_called()
+
+
+def test_get_or_create_vecu_no_suitable_component(app):
+    # arrange
+    _set_no_vecus(app)
     _set_components(app, {})
 
     # act
-    result = create_vecu.create_vecu_options()
+    result = create_vecu.get_or_create_vecu()
 
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
     assert result["error_code"] == "COMPONENT_NOT_FOUND"
     assert "no suitable sw component" in result["message"].lower()
-    assert runtime._vecu_options is None
 
 
-@pytest.mark.parametrize("tool", [create_vecu.create_vecu_options, create_vecu.get_or_create_vecu_fmu])
-def test_no_project_open(app, tool):
+def test_get_or_create_vecu_creation_returns_none_with_messages(app):
     # arrange
-    app.ActiveProject = None
-
-    # act
-    result = tool()
-
-    # assert
-    assert result["status"] == "error"
-    assert result["error_type"] == "permanent"
-    assert result["error_code"] == "NO_PROJECT_OPEN"
-    assert "no project is currently open" in result["message"].lower()
-
-
-@pytest.mark.parametrize("tool", [create_vecu.create_vecu_options, create_vecu.get_or_create_vecu_fmu])
-def test_not_started(tool):
-    # arrange
-    runtime._application = None
-
-    # act
-    result = tool()
-
-    # assert
-    assert result["status"] == "error"
-    assert result["error_type"] == "permanent"
-    assert result["error_code"] == "SYSTEMDESK_NOT_RUNNING"
-
-
-def test_create_vecu_options_com_failure(app):
-    # arrange
-    composition = _component("RootComposition")
-    composition.GetNewCreateVEcuOptions.side_effect = RuntimeError("COM failure")
-    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
-
-    # act
-    result = create_vecu.create_vecu_options()
-
-    # assert
-    assert result["status"] == "error"
-    assert result["error_type"] == "transient"
-    assert result["error_code"] == "VECU_OPTIONS_CREATION_FAILED"
-    assert result["details"] == "COM failure"
-    assert runtime._vecu_options is None
-
-
-def test_get_or_create_vecu_fmu_reuses_vecu_by_name(app):
-    # arrange
-    v_ecu = _vecu("MyVEcu")
-    app.ActiveProject.VEcus.Item.return_value = v_ecu
-
-    # act
-    result = create_vecu.get_or_create_vecu_fmu(vecu_name="MyVEcu")
-
-    # assert
-    assert result["status"] == "success"
-    assert result["created"] is False
-    assert result["vecu_name"] == "MyVEcu"
-    assert result["system_path"] == "/Systems/MyVEcu_System"
-    assert result["ecu_configuration"] == "MyVEcu_EcuConfiguration"
-    assert result["message"] == "Reusing existing V-ECU 'MyVEcu'."
-    assert runtime._last_vecu is v_ecu
-    app.ActiveProject.VEcus.Item.assert_called_once_with("MyVEcu")
-
-
-def test_get_or_create_vecu_fmu_vecu_name_not_found(app):
-    # arrange
-    app.ActiveProject.VEcus.Item.side_effect = RuntimeError("not found")
-
-    # act
-    result = create_vecu.get_or_create_vecu_fmu(vecu_name="Missing")
-
-    # assert
-    assert result["status"] == "error"
-    assert result["error_type"] == "permanent"
-    assert result["error_code"] == "VECU_NOT_FOUND"
-    assert "'Missing'" in result["message"]
-    assert runtime._last_vecu is None
-
-
-def test_get_or_create_vecu_fmu_reuses_first_vecu(app):
-    # arrange
-    first = _vecu("FirstVEcu")
-    second = _vecu("SecondVEcu")
-    app.ActiveProject.VEcus.Elements = [first, second]
-
-    # act
-    result = create_vecu.get_or_create_vecu_fmu()
-
-    # assert
-    assert result["status"] == "success"
-    assert result["created"] is False
-    assert result["vecu_name"] == "FirstVEcu"
-    assert result["message"] == "Reusing existing V-ECU 'FirstVEcu'."
-    assert runtime._last_vecu is first
-    app.ActiveProject.VEcus.Item.assert_not_called()
-
-
-def test_get_or_create_vecu_fmu_creates_vecu(app):
-    # arrange
-    app.ActiveProject.VEcus.Elements = []
-    options = SimpleNamespace()
-    runtime._vecu_options = options
-    composition = _component("RootComposition")
-    v_ecu = _vecu("NewVEcu")
-    composition.CreateVEcu.return_value = v_ecu
-    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
-
-    # act
-    result = create_vecu.get_or_create_vecu_fmu()
-
-    # assert
-    assert result["status"] == "success"
-    assert result["created"] is True
-    assert result["vecu_name"] == "NewVEcu"
-    assert result["system_path"] == "/Systems/NewVEcu_System"
-    assert result["ecu_configuration"] == "NewVEcu_EcuConfiguration"
-    assert result["message"] == "V-ECU created successfully."
-    composition.CreateVEcu.assert_called_once_with(options)
-    assert runtime._last_vecu is v_ecu
-    assert runtime._vecu_options is options
-
-
-def test_get_or_create_vecu_fmu_force_create_ignores_existing_vecus(app):
-    # arrange
-    app.ActiveProject.VEcus.Elements = [_vecu("ExistingVEcu")]
-    runtime._vecu_options = SimpleNamespace()
-    composition = _component("RootComposition")
-    composition.CreateVEcu.return_value = _vecu("NewVEcu")
-    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
-
-    # act
-    result = create_vecu.get_or_create_vecu_fmu(vecu_name="ExistingVEcu", force_create=True)
-
-    # assert
-    assert result["status"] == "success"
-    assert result["created"] is True
-    assert result["vecu_name"] == "NewVEcu"
-    app.ActiveProject.VEcus.Item.assert_not_called()
-
-
-def test_get_or_create_vecu_fmu_options_missing(app):
-    # arrange
-    app.ActiveProject.VEcus.Elements = []
-    runtime._vecu_options = None
-
-    # act
-    result = create_vecu.get_or_create_vecu_fmu()
-
-    # assert
-    assert result["status"] == "error"
-    assert result["error_type"] == "permanent"
-    assert result["error_code"] == "VECU_OPTIONS_MISSING"
-    assert "create_vecu_options" in result["message"]
-
-
-def test_get_or_create_vecu_fmu_component_name_not_found(app):
-    # arrange
-    app.ActiveProject.VEcus.Elements = []
-    options = SimpleNamespace()
-    runtime._vecu_options = options
-    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [_component("RootComposition")]})
-
-    # act
-    result = create_vecu.get_or_create_vecu_fmu(component_name="Missing")
-
-    # assert
-    assert result["status"] == "error"
-    assert result["error_type"] == "permanent"
-    assert result["error_code"] == "COMPONENT_NOT_FOUND"
-    assert "'Missing'" in result["message"]
-    assert runtime._vecu_options is options
-
-
-def test_get_or_create_vecu_fmu_creation_returns_none_with_messages(app):
-    # arrange
-    app.ActiveProject.VEcus.Elements = []
-    options = SimpleNamespace()
-    runtime._vecu_options = options
-    composition = _component("RootComposition")
-    composition.CreateVEcu.return_value = None
+    _set_no_vecus(app)
+    composition = _component("RootComposition", v_ecu=None)
     _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
     app.Messages.Elements = [
         _message_with_errors(("Error(1,2,3)", "Older error")),
@@ -413,54 +528,51 @@ def test_get_or_create_vecu_fmu_creation_returns_none_with_messages(app):
     ]
 
     # act
-    result = create_vecu.get_or_create_vecu_fmu()
+    result = create_vecu.get_or_create_vecu()
 
     # assert
     assert result["status"] == "error"
-    assert result["error_type"] == "transient"
+    assert result["error_type"] == "permanent"
     assert result["error_code"] == "VECU_CREATION_FAILED"
     assert json.loads(result["details"]) == [
         {"MessageIdentifier": "Error(4,5,6)", "MessageText": "First error"},
         {"MessageIdentifier": "Error(7,8,9)", "MessageText": "Second error"},
     ]
     assert runtime._last_vecu is None
-    assert runtime._vecu_options is options
 
 
-def test_get_or_create_vecu_fmu_creation_returns_none_without_messages(app):
+def test_get_or_create_vecu_creation_returns_none_without_messages(app):
     # arrange
-    app.ActiveProject.VEcus.Elements = []
-    runtime._vecu_options = SimpleNamespace()
-    composition = _component("RootComposition")
-    composition.CreateVEcu.return_value = None
+    _set_no_vecus(app)
+    composition = _component("RootComposition", v_ecu=None)
     _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
     app.Messages.Elements = [_message_without_errors()]
 
     # act
-    result = create_vecu.get_or_create_vecu_fmu()
+    result = create_vecu.get_or_create_vecu()
 
     # assert
     assert result["status"] == "error"
-    assert result["error_type"] == "transient"
+    assert result["error_type"] == "permanent"
     assert result["error_code"] == "VECU_CREATION_FAILED"
     assert "details" not in result
 
 
-def test_get_or_create_vecu_fmu_com_failure(app):
+@pytest.mark.parametrize("failing_call", ["GetNewCreateVEcuOptions", "CreateVEcu"])
+def test_get_or_create_vecu_com_failure(app, failing_call):
     # arrange
-    app.ActiveProject.VEcus.Elements = []
-    runtime._vecu_options = SimpleNamespace()
+    _set_no_vecus(app)
     composition = _component("RootComposition")
-    composition.CreateVEcu.side_effect = RuntimeError("COM failure")
+    getattr(composition, failing_call).side_effect = RuntimeError("COM failure")
     _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
 
     # act
-    result = create_vecu.get_or_create_vecu_fmu()
+    result = create_vecu.get_or_create_vecu()
 
     # assert
     assert result["status"] == "error"
-    assert result["error_type"] == "transient"
-    assert result["error_code"] == "VECU_CREATION_FAILED"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "UNEXPECTED_ERROR"
     assert result["details"] == "COM failure"
     assert runtime._last_vecu is None
 
@@ -468,9 +580,7 @@ def test_get_or_create_vecu_fmu_com_failure(app):
 @pytest.mark.parametrize("timeout", [0, -1, common.MAX_TIMEOUT_SECONDS + 1])
 def test_timeout_out_of_range_rejected_by_schema(timeout):
     with pytest.raises(ValidationError):
-        validate_args(create_vecu.create_vecu_options, timeout=timeout)
-    with pytest.raises(ValidationError):
-        validate_args(create_vecu.get_or_create_vecu_fmu, timeout=timeout)
+        validate_args(create_vecu.get_or_create_vecu, timeout=timeout)
 
 
 @pytest.mark.parametrize(
@@ -481,6 +591,6 @@ def test_timeout_out_of_range_rejected_by_schema(timeout):
         {"rte_simulation_logging": "ALL"},
     ],
 )
-def test_create_vecu_options_invalid_literal_rejected_by_schema(arguments):
+def test_get_or_create_vecu_invalid_literal_rejected_by_schema(arguments):
     with pytest.raises(ValidationError):
-        validate_args(create_vecu.create_vecu_options, **arguments)
+        validate_args(create_vecu.get_or_create_vecu, **arguments)
