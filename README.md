@@ -57,8 +57,11 @@ Recommended flow:
 3. `import_autosar_file(file_path, timeout=60)`
 4. `create_composition(composition_path, component_paths)` (optional)
 5. `validate_autosar(output_format="markdown" | "json", timeout=120)`
-6. `close_project(save_project=True)` (optional, only to close the project)
-7. `close_systemdesk(save_project=True)` (optional, only to quit SystemDesk)
+6. `get_vecu_configuration(vecu_name=None, sections=None, timeout=60)` (for a project that contains a V-ECU)
+7. `configure_runnable_mapping(tasks, mappings, vecu_name=None, timeout=120)` (optional)
+8. `configure_rte_interventions(vecu_name=None, intervention_points=None, access="dap", enable=True, timeout=120)` (optional)
+9. `close_project(save_project=True)` (optional, only to close the project)
+10. `close_systemdesk(save_project=True)` (optional, only to quit SystemDesk)
 
 Important:
 
@@ -100,6 +103,9 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 - `import_autosar_file(file_path, timeout=60)`
 - `create_composition(composition_path, component_paths)`
 - `validate_autosar(output_format="markdown" | "json", timeout=120)`
+- `get_vecu_configuration(vecu_name=None, sections=None, timeout=60)`
+- `configure_runnable_mapping(tasks, mappings, vecu_name=None, timeout=120)`
+- `configure_rte_interventions(vecu_name=None, intervention_points=None, access="dap", enable=True, timeout=120)`
 
 ## Extending the Server
 
