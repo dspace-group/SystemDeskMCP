@@ -195,8 +195,8 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
         description="Whether to auto-configure and generate the V-ECU. Example: false",
     )] = False,
     timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
-        description="Maximum number of seconds to wait for V-ECU lookup/creation to complete. Example: 120",
-    )] = 120,
+        description="Maximum number of seconds to wait for V-ECU lookup/creation to complete. Example: 240",
+    )] = 240,
 ) -> dict[str, Any]:
     """
     Resolve the V-ECU to work with: reuse an existing one or create a new one.

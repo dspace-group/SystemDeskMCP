@@ -62,8 +62,8 @@ def generate_vecu_bsw(
         ),
     )],
     timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
-        description="Maximum number of seconds to wait for BSW generation to complete. Example: 120",
-    )] = 120,
+        description="Maximum number of seconds to wait for BSW generation to complete. Example: 240",
+    )] = 240,
 ) -> dict[str, Any]:
     """
     Run BSW generation ("Auto Configure And Generate") for the V-ECU Implementation of a V-ECU.
@@ -143,8 +143,8 @@ def export_vecu_fmu(
         ),
     )] = None,
     timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
-        description="Maximum number of seconds to wait for the export to complete. Example: 300",
-    )] = 300,
+        description="Maximum number of seconds to wait for the export to complete. Example: 600",
+    )] = 600,
 ) -> dict[str, Any]:
     """
     Export a V-ECU to an FMU file named <vecu_name>.fmu.
