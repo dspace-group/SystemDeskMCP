@@ -27,6 +27,7 @@ _ACCESS_BY_SERVICE_TYPE = {value: key for key, value in _SERVICE_TYPE_BY_ACCESS.
 
 _UPDATE_RTE_CONFIGURATION = "Update Rte Configuration"
 _SERVICE_COMPONENT_TYPE = "SERVICE-SW-COMPONENT-TYPE"
+_MIN_PERIOD_MS = 0.0001
 _MAX_PERIOD_MS = 3_600_000
 _MAX_PRIORITY = 2**31 - 1
 
@@ -38,7 +39,7 @@ class OsTaskSpec(BaseModel):
 
     name: AutosarShortName = Field(description="Name of the OS task. Example: 'Task10ms'")
     period_ms: Optional[float] = Field(
-        default=None, gt=0, le=_MAX_PERIOD_MS,
+        default=None, ge=_MIN_PERIOD_MS, le=_MAX_PERIOD_MS,
         description=(
             "Activation period of the task in milliseconds. Omit (null) for non-cyclic tasks, "
             "e.g. a task for init events. Example: 10"

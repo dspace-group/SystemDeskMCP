@@ -700,6 +700,8 @@ def test_mapping_requires_os_and_rte_modules(world, module):
         {"name": "1Task", "priority": 1},
         {"name": "Task", "priority": -1},
         {"name": "Task", "priority": 1, "period_ms": 0},
+        {"name": "Task", "priority": 1, "period_ms": 0.00009},
+        {"name": "Task", "priority": 1, "period_ms": 3_600_001},
         {"name": "Task", "priority": 1, "unknown": 1},
         {"name": "Task"},
     ],
@@ -720,6 +722,11 @@ def test_mapping_invalid_task_rejected_by_schema(task):
 def test_mapping_invalid_mapping_rejected_by_schema(mapping):
     with pytest.raises(ValidationError):
         validate_args(vc.configure_runnable_mapping, mappings=[mapping])
+
+
+@pytest.mark.parametrize("period_ms", [0.0001, 3_600_000])
+def test_mapping_task_period_bounds_accepted_by_schema(period_ms):
+    validate_args(vc.configure_runnable_mapping, tasks=[{"name": "Task", "priority": 1, "period_ms": period_ms}])
 
 
 def test_mapping_tasks_and_mappings_are_optional_in_schema():
