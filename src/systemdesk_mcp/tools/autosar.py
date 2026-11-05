@@ -83,6 +83,8 @@ def import_autosar_file(
         if import_export_file is None:
             import_export_file = import_export_files.Add(file_path)
         import_export_file.AddNewElementsToConfiguration = True
+        import_export_file.ExportCatalog = True
+        import_export_file.ImportCatalog = True
         import_export_file.ExportDiagrams = True
         import_export_file.ImportDiagrams = True
         import_export_file.ImportAllElements = True

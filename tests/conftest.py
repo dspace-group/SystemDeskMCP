@@ -12,4 +12,5 @@ def app(monkeypatch):
     """Install a mock COM application and restore the previous state on teardown."""
     mock = MagicMock()
     monkeypatch.setattr(runtime, "_application", mock)
+    monkeypatch.setattr(runtime, "_last_vecu", None)
     return mock
