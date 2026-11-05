@@ -9,11 +9,12 @@ from systemdesk_mcp.common import (
     ErrorCode,
     PermanentError,
     TimeoutSeconds,
+    VecuNameParam,
     error_response,
     success_response,
 )
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.runtime import get_active_project, get_app, logged, on_com_thread
+from systemdesk_mcp.runtime import get_app, get_vecu, logged, on_com_thread
 
 Section = Literal["runnables", "os_tasks", "rte_intervention_points", "rte_interventions"]
 ALL_SECTIONS: tuple[Section, ...] = ("runnables", "os_tasks", "rte_intervention_points", "rte_interventions")
@@ -81,58 +82,16 @@ class InterventionPointSpec(BaseModel):
     data_element: AutosarShortName = Field(description="Data element of the port interface. Example: 'Sensors'")
 
 
-VecuNameParam = Annotated[Optional[AutosarShortName], Field(
-    description=(
-        "Name of the V-ECU. May be omitted (null) only if the open project contains exactly one V-ECU; "
-        "if it contains several, ask the user which one to use. Example: 'Test_Ecu'"
-    ),
-)]
-
-
 # --------------------------------------------------------------------------------------------------
 # Shared helpers
 # --------------------------------------------------------------------------------------------------
-
-def _get_vecu(vecu_name: Optional[str]):
-    """Return the V-ECU named vecu_name, else the only V-ECU of the active project.
-
-    Raises VECU_SELECTION_REQUIRED, listing the available V-ECUs, if vecu_name is omitted and the
-    project contains several V-ECUs, so that the client asks the user which one to use.
-    """
-    vecus = get_active_project().VEcus
-    if vecu_name is None:
-        elements = list(vecus.Elements)
-        if not elements:
-            raise PermanentError(
-                "The open project does not contain a V-ECU.", error_code=ErrorCode.VECU_NOT_FOUND,
-            )
-        if len(elements) > 1:
-            available = ", ".join(v.Name for v in elements)
-            raise PermanentError(
-                f"The open project contains several V-ECUs: {available}. Ask the user which V-ECU to use "
-                "and call the tool again with vecu_name set to the chosen name.",
-                error_code=ErrorCode.VECU_SELECTION_REQUIRED,
-            )
-        return elements[0]
-    try:
-        v_ecu = vecus.Item(vecu_name)
-    except Exception:  # pylint: disable=broad-exception-caught
-        v_ecu = None
-    if v_ecu is None:
-        available = ", ".join(v.Name for v in vecus.Elements) or "none"
-        raise PermanentError(
-            f"No V-ECU named '{vecu_name}' exists in the open project. Available V-ECUs: {available}.",
-            error_code=ErrorCode.VECU_NOT_FOUND,
-        )
-    return v_ecu
-
 
 def _get_module_configuration(ecu_configuration, definition_name: str, required: bool = True):
     module = ecu_configuration.GetModuleConfigurationByDefinitionName(definition_name, False)
     if module is None and required:
         raise PermanentError(
             f"The ECU configuration '{ecu_configuration.Name}' has no {definition_name} module configuration.",
-            error_code=ErrorCode.MODULE_CONFIGURATION_NOT_FOUND,
+            error_code=ErrorCode.AUTOSAR_ELEMENT_NOT_FOUND,
         )
     return module
 
@@ -318,7 +277,7 @@ def get_vecu_configuration(
     - permanent / UNEXPECTED_ERROR: reading the configuration failed
     """
     try:
-        v_ecu = _get_vecu(vecu_name)
+        v_ecu = get_vecu(vecu_name)
         ecu_configuration = v_ecu.EcuConfiguration
         requested = [s for s in ALL_SECTIONS if sections is None or s in sections]
         result: dict[str, Any] = {"vecu_name": v_ecu.Name}
@@ -356,7 +315,7 @@ def _resolve_event(components: dict[str, Any], spec: RunnableMappingSpec):
         raise PermanentError(
             f"The V-ECU has no SW component '{spec.component}'. "
             f"Available components: {', '.join(components) or 'none'}.",
-            error_code=ErrorCode.RTE_EVENT_NOT_FOUND,
+            error_code=ErrorCode.AUTOSAR_ELEMENT_NOT_FOUND,
         )
     for event in _rte_events(component):
         if event.ShortName == spec.rte_event:
@@ -365,12 +324,12 @@ def _resolve_event(components: dict[str, Any], spec: RunnableMappingSpec):
                 raise PermanentError(
                     f"RTE event '{spec.rte_event}' of component '{spec.component}' starts runnable "
                     f"'{runnable}', not '{spec.runnable}'.",
-                    error_code=ErrorCode.RTE_EVENT_NOT_FOUND,
+                    error_code=ErrorCode.INVALID_ARGUMENTS,
                 )
             return event
     raise PermanentError(
         f"Component '{spec.component}' has no RTE event '{spec.rte_event}'.",
-        error_code=ErrorCode.RTE_EVENT_NOT_FOUND,
+        error_code=ErrorCode.AUTOSAR_ELEMENT_NOT_FOUND,
     )
 
 
@@ -385,7 +344,7 @@ def _resolve_mapping_request(ecu_configuration, os_configuration, tasks, mapping
         if spec.task not in requested_tasks and os_configuration.OsTasks.Item(spec.task) is None:
             raise PermanentError(
                 f"OS task '{spec.task}' does not exist and is not given in tasks.",
-                error_code=ErrorCode.OS_TASK_NOT_FOUND,
+                error_code=ErrorCode.AUTOSAR_ELEMENT_NOT_FOUND,
             )
     return events
 
@@ -433,7 +392,7 @@ def _run_update_rte_configuration(rte_configuration) -> None:
         raise PermanentError(
             f"'{_UPDATE_RTE_CONFIGURATION}' failed: "
             + "; ".join(f"{m.MessageIdentifier}: {m.MessageText}" for m in error_messages.Elements),
-            error_code=ErrorCode.RTE_CONFIGURATION_UPDATE_FAILED,
+            error_code=ErrorCode.SYSTEMDESK_OPERATION_FAILED,
         )
 
 
@@ -547,12 +506,12 @@ def configure_runnable_mapping(  # pylint: disable=too-many-locals
     - permanent / VECU_NOT_FOUND: vecu_name does not exist, or the project has no V-ECU
     - permanent / VECU_SELECTION_REQUIRED: vecu_name omitted but the project has several V-ECUs;
       ask the user to choose one of the listed V-ECUs and call again with vecu_name
-    - permanent / MODULE_CONFIGURATION_NOT_FOUND: the ECU configuration has no Os or Rte module
-    - permanent / INVALID_ARGUMENTS: neither tasks nor mappings is given, or a task name or a
-      (component, rte_event) pair is given twice
-    - permanent / RTE_EVENT_NOT_FOUND: component, RTE event or runnable does not exist or does not match
-    - permanent / OS_TASK_NOT_FOUND: a mapping refers to a task that neither exists nor is given in tasks
-    - permanent / RTE_CONFIGURATION_UPDATE_FAILED: 'Update Rte Configuration' reported errors
+    - permanent / INVALID_ARGUMENTS: neither tasks nor mappings is given, a task name or a
+      (component, rte_event) pair is given twice, or an RTE event does not start the given runnable
+    - permanent / AUTOSAR_ELEMENT_NOT_FOUND: the ECU configuration has no Os or Rte module, a
+      component or RTE event does not exist, or a mapping refers to a task that neither exists
+      nor is given in tasks
+    - permanent / SYSTEMDESK_OPERATION_FAILED: 'Update Rte Configuration' reported errors
     - transient / TIMEOUT: the configuration timed out
     - permanent / UNEXPECTED_ERROR: a SystemDesk call failed
     """
@@ -565,7 +524,7 @@ def configure_runnable_mapping(  # pylint: disable=too-many-locals
         tasks = tasks or []
         mappings = mappings or []
 
-        v_ecu = _get_vecu(vecu_name)
+        v_ecu = get_vecu(vecu_name)
         ecu_configuration = v_ecu.EcuConfiguration
         os_configuration = _get_module_configuration(ecu_configuration, "Os")
         rte_configuration = _get_module_configuration(ecu_configuration, "Rte")
@@ -657,7 +616,7 @@ def _select_intervention_points(intervention_points, possible, unmapped, existin
             "No RTE intervention point exists or is possible for: "
             + ", ".join("/".join(m) for m in missing)
             + ". Call get_vecu_configuration to list the possible points.",
-            error_code=ErrorCode.INTERVENTION_POINT_NOT_FOUND,
+            error_code=ErrorCode.AUTOSAR_ELEMENT_NOT_FOUND,
         )
     return {key for key in set(possible) | set(unmapped) if key[:3] in requested}
 
@@ -747,13 +706,13 @@ def configure_rte_interventions(  # pylint: disable=too-many-locals
     - permanent / VECU_SELECTION_REQUIRED: vecu_name omitted but the project has several V-ECUs;
       ask the user to choose one of the listed V-ECUs and call again with vecu_name
     - permanent / INVALID_ARGUMENTS: an intervention point is given twice
-    - permanent / INTERVENTION_POINT_NOT_FOUND: no intervention point exists or is possible for a
+    - permanent / AUTOSAR_ELEMENT_NOT_FOUND: no intervention point exists or is possible for a
       given component, port and data_element
     - transient / TIMEOUT: the configuration timed out
     - permanent / UNEXPECTED_ERROR: a SystemDesk call failed
     """
     try:
-        v_ecu = _get_vecu(vecu_name)
+        v_ecu = get_vecu(vecu_name)
         rte_interventions = v_ecu.EcuConfiguration.RteInterventions
 
         possible, unmapped, existing_targets = _collect_intervention_points(rte_interventions)

@@ -39,7 +39,7 @@ def _find_sw_component(active_project, component_path):
 
     raise PermanentError(
         "No suitable SW component type was found in the active project.",
-        error_code=ErrorCode.COMPONENT_NOT_FOUND)
+        error_code=ErrorCode.AUTOSAR_ELEMENT_NOT_FOUND)
 
 
 def _get_active_project():
@@ -164,14 +164,23 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
         ),
     )] = "Default ECU Configuration for V-ECU FMUs (FMI 3.0)",
     generate_dap_for_atomic_ports: Annotated[Optional[bool], Field(
-        description="Generate DAP for atomic ports. Example: true",
+        description=(
+            "Automatically create data access points (DAPs) for the unconnected atomic port interface "
+            "elements of the V-ECU, so all unconnected atomic ports can be accessed via RTE interventions "
+            "(see configure_rte_interventions). Example: true"
+        ),
     )] = None,
     generate_dap_for_root_composition_ports: Annotated[Optional[bool], Field(
-        description="Generate DAP for root composition ports. Example: true",
+        description=(
+            "Automatically create data access points (DAPs) for the delegation ports of the root "
+            "composition, so the external communication of the V-ECU (all unconnected ports of inner "
+            "compositions and the root composition) can be accessed via RTE interventions "
+            "(see configure_rte_interventions). Example: true"
+        ),
     )] = None,
     create_runnable_mapping: Annotated[Optional[bool], Field(
-        description="Create the runnable mapping. Example: true",
-    )] = None,
+        description="Create the runnable mapping. Defaults to true. Example: true",
+    )] = True,
     rte_calibration_support: Annotated[Optional[Literal["INITIALIZED_RAM", "NONE", "OFFLINE"]], Field(
         description=(
             "RTE calibration support. 'INITIALIZED_RAM': values can be changed at run time "
@@ -192,7 +201,10 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
         description="Enable RTE measurement support. Example: true",
     )] = None,
     auto_configure_and_generate: Annotated[bool, Field(
-        description="Whether to auto-configure and generate the V-ECU. Example: false",
+        description=(
+            "Automatically configure and generate the V-ECU implementation (validation, module "
+            "configuration, BSW generation, and code generation). Example: false"
+        ),
     )] = False,
     timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
         description="Maximum number of seconds to wait for V-ECU lookup/creation to complete. Example: 240",
@@ -219,12 +231,11 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
     Failure codes (error_type / error_code: condition):
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
     - permanent / NO_PROJECT_OPEN: no project currently open
-    - permanent / AUTOSAR_ELEMENT_NOT_FOUND: component_path does not exist
+    - permanent / AUTOSAR_ELEMENT_NOT_FOUND: component_path does not exist, or no component_path
+      given and no suitable SW component found (when creation is needed)
     - permanent / AMBIGUOUS_AUTOSAR_PATH: component_path resolves to multiple elements
     - permanent / INVALID_AUTOSAR_ELEMENT_TYPE: component_path is not a SwComponentType
-    - permanent / COMPONENT_NOT_FOUND: no component_path given and no suitable SW component found
-      (when creation is needed)
-    - permanent / VECU_CREATION_FAILED: SystemDesk rejected the V-ECU creation (see details)
+    - permanent / SYSTEMDESK_OPERATION_FAILED: SystemDesk rejected the V-ECU creation (see details)
     - transient / TIMEOUT: V-ECU lookup or creation timed out
     - permanent / UNEXPECTED_ERROR: V-ECU lookup or creation call failed
     """
@@ -258,7 +269,7 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
             return error_response(
                 "V-ECU creation failed. SystemDesk reported the following issue(s):",
                 error_type="permanent",
-                error_code=ErrorCode.VECU_CREATION_FAILED,
+                error_code=ErrorCode.SYSTEMDESK_OPERATION_FAILED,
                 details=json.dumps(collected, default=str) if collected else None,
             )
 

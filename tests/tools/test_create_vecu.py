@@ -199,6 +199,7 @@ def test_get_or_create_vecu_creates_vecu_with_defaults(app):
     assert vars(options) == {
         "Ecu": "/Ecus/DefaultEcu",
         "PredefinedEcuConfiguration": "Default ECU Configuration for V-ECU FMUs (FMI 3.0)",
+        "CreateRunnableMapping": True,
         "AutoConfigureAndGenerate": False,
     }
     assert runtime._last_vecu is v_ecu
@@ -511,7 +512,7 @@ def test_get_or_create_vecu_no_suitable_component(app):
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
-    assert result["error_code"] == "COMPONENT_NOT_FOUND"
+    assert result["error_code"] == "AUTOSAR_ELEMENT_NOT_FOUND"
     assert "no suitable sw component" in result["message"].lower()
 
 
@@ -533,7 +534,7 @@ def test_get_or_create_vecu_creation_returns_none_with_messages(app):
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
-    assert result["error_code"] == "VECU_CREATION_FAILED"
+    assert result["error_code"] == "SYSTEMDESK_OPERATION_FAILED"
     assert json.loads(result["details"]) == [
         {"MessageIdentifier": "Error(4,5,6)", "MessageText": "First error"},
         {"MessageIdentifier": "Error(7,8,9)", "MessageText": "Second error"},
@@ -554,7 +555,7 @@ def test_get_or_create_vecu_creation_returns_none_without_messages(app):
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
-    assert result["error_code"] == "VECU_CREATION_FAILED"
+    assert result["error_code"] == "SYSTEMDESK_OPERATION_FAILED"
     assert "details" not in result
 
 

@@ -622,10 +622,10 @@ def test_mapping_returns_os_and_rte_validation_errors_only(world):
 @pytest.mark.parametrize(
     "spec, code, text",
     [
-        (_mapping_spec(component="Nope"), "RTE_EVENT_NOT_FOUND", "no SW component 'Nope'"),
-        (_mapping_spec(event="Missing"), "RTE_EVENT_NOT_FOUND", "no RTE event 'Missing'"),
-        (_mapping_spec(runnable="Wrong"), "RTE_EVENT_NOT_FOUND", "starts runnable 'Calc', not 'Wrong'"),
-        (_mapping_spec(task="NoTask"), "OS_TASK_NOT_FOUND", "'NoTask' does not exist"),
+        (_mapping_spec(component="Nope"), "AUTOSAR_ELEMENT_NOT_FOUND", "no SW component 'Nope'"),
+        (_mapping_spec(event="Missing"), "AUTOSAR_ELEMENT_NOT_FOUND", "no RTE event 'Missing'"),
+        (_mapping_spec(runnable="Wrong"), "INVALID_ARGUMENTS", "starts runnable 'Calc', not 'Wrong'"),
+        (_mapping_spec(task="NoTask"), "AUTOSAR_ELEMENT_NOT_FOUND", "'NoTask' does not exist"),
     ],
 )
 def test_mapping_rejects_unknown_elements_without_changes(world, spec, code, text):
@@ -676,7 +676,7 @@ def test_mapping_reports_update_rte_configuration_errors(world):
     result = vc.configure_runnable_mapping(tasks=[OsTaskSpec(name="T", priority=1)])
 
     # assert
-    assert result["error_code"] == "RTE_CONFIGURATION_UPDATE_FAILED"
+    assert result["error_code"] == "SYSTEMDESK_OPERATION_FAILED"
     assert "Error(1,2,3): Update failed" in result["message"]
     assert world.app.BatchMode is False
 
@@ -690,7 +690,7 @@ def test_mapping_requires_os_and_rte_modules(world, module):
     result = vc.configure_runnable_mapping(tasks=[OsTaskSpec(name="Task10ms", priority=1)])
 
     # assert
-    assert result["error_code"] == "MODULE_CONFIGURATION_NOT_FOUND"
+    assert result["error_code"] == "AUTOSAR_ELEMENT_NOT_FOUND"
     assert module in result["message"]
 
 
@@ -893,7 +893,7 @@ def test_interventions_unknown_point_rejected_without_changes(world, component, 
     ])
 
     # assert
-    assert result["error_code"] == "INTERVENTION_POINT_NOT_FOUND"
+    assert result["error_code"] == "AUTOSAR_ELEMENT_NOT_FOUND"
     assert f"{component}/{port}/Value" in result["message"]
     assert world.rti.existing == []
     assert world.rti.InterventionEnableCodeGeneration is False

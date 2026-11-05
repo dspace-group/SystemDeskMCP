@@ -54,6 +54,7 @@ def _set_vecus(app, *vecus):
         return by_name[name]
 
     app.ActiveProject.VEcus.Item.side_effect = _item
+    app.ActiveProject.VEcus.Elements = list(vecus)
     app.ActiveProject.File = PROJECT_FILE
 
 
@@ -111,13 +112,70 @@ def test_vecu_not_found(app, tool):
     assert result["error_type"] == "permanent"
     assert result["error_code"] == "VECU_NOT_FOUND"
     assert "'Missing'" in result["message"]
+    assert "OtherVEcu" in result["message"]
     assert "get_or_create_vecu" in result["message"]
 
 
 @pytest.mark.parametrize("tool", TOOLS)
-def test_vecu_name_is_required_by_schema(tool):
-    with pytest.raises(ValidationError):
-        validate_args(tool)
+def test_omitted_vecu_name_without_vecu(app, tool):
+    # arrange
+    _set_vecus(app)
+
+    # act
+    result = tool()
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "VECU_NOT_FOUND"
+
+
+@pytest.mark.parametrize("tool", TOOLS)
+def test_omitted_vecu_name_with_several_vecus(app, tool):
+    # arrange
+    _set_vecus(app, _vecu("First"), _vecu("Second"))
+
+    # act
+    result = tool()
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "VECU_SELECTION_REQUIRED"
+    assert "First, Second" in result["message"]
+
+
+def test_generate_vecu_bsw_resolves_only_vecu(app):
+    # arrange
+    v_ecu = _vecu("OnlyVEcu")
+    v_ecu.EcuConfiguration.StartBswGeneration.return_value = _bsw_result()
+    _set_vecus(app, v_ecu)
+
+    # act
+    result = vecu_export.generate_vecu_bsw()
+
+    # assert
+    assert result["status"] == "success"
+    assert result["vecu_name"] == "OnlyVEcu"
+
+
+@pytest.mark.usefixtures("no_files")
+def test_export_vecu_fmu_resolves_only_vecu(app):
+    # arrange
+    _set_vecus(app, _vecu("OnlyVEcu"))
+
+    # act
+    result = vecu_export.export_vecu_fmu()
+
+    # assert
+    assert result["status"] == "success"
+    assert result["vecu_name"] == "OnlyVEcu"
+    assert result["fmu_file"].endswith("OnlyVEcu.fmu")
+
+
+@pytest.mark.parametrize("tool", TOOLS)
+def test_vecu_name_is_optional_in_schema(tool):
+    validate_args(tool)
 
 
 @pytest.mark.parametrize("tool", TOOLS)
@@ -149,6 +207,7 @@ def test_generate_vecu_bsw_success(app):
     # assert
     assert result == {
         "status": "success",
+        "vecu_name": "MyVEcu",
         "message": "Execution of BSW generation for V-ECU Implementation was successful.",
     }
     v_ecu.EcuConfiguration.StartBswGeneration.assert_called_once_with("V-ECU Implementation")
@@ -179,7 +238,7 @@ def test_generate_vecu_bsw_reports_generation_errors(app):
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
-    assert result["error_code"] == "BSW_GENERATION_FAILED"
+    assert result["error_code"] == "SYSTEMDESK_OPERATION_FAILED"
     assert result["message"] == "Execution of BSW generation for V-ECU Implementation failed."
     assert result["details"] == "First error\nSecond error"
 
@@ -216,6 +275,7 @@ def test_export_vecu_fmu_success_defaults_to_project_directory(app):
     # assert
     assert result == {
         "status": "success",
+        "vecu_name": "MyVEcu",
         "fmu_file": expected_fmu,
         "message": f"V-ECU FMU exported successfully to '{expected_fmu}'.",
     }
@@ -330,7 +390,7 @@ def test_export_vecu_fmu_ignores_only_expected_errors_and_reports_build_log(app)
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
-    assert result["error_code"] == "FMU_EXPORT_FAILED"
+    assert result["error_code"] == "SYSTEMDESK_OPERATION_FAILED"
     assert "Review the build log" in result["message"]
     assert result["details"] == "Writing the build log to: C:\\Build\\build.log"
 
@@ -349,7 +409,7 @@ def test_export_vecu_fmu_reports_build_log_not_found(app):
     result = vecu_export.export_vecu_fmu(vecu_name="MyVEcu")
 
     # assert
-    assert result["error_code"] == "FMU_EXPORT_FAILED"
+    assert result["error_code"] == "SYSTEMDESK_OPERATION_FAILED"
     assert result["details"].startswith("Build log location not found.")
 
 
@@ -371,7 +431,7 @@ def test_export_vecu_fmu_reports_unexpected_errors_with_children(app):
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
-    assert result["error_code"] == "FMU_EXPORT_FAILED"
+    assert result["error_code"] == "SYSTEMDESK_OPERATION_FAILED"
     assert "Fix the reported errors" in result["message"]
     assert result["details"] == "Error(9,9,9): Compiler failed\nError(9,9,10): Missing header"
 
