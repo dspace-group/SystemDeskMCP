@@ -4,6 +4,7 @@
 import inspect
 import json
 import typing
+from unittest.mock import MagicMock
 
 import pytest
 from packaging.version import Version
@@ -13,6 +14,59 @@ from fastmcp.tools import FunctionTool
 
 import systemdesk_mcp.server as srv
 from systemdesk_mcp import runtime
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("boundary", [False, True])
+@pytest.mark.parametrize("matching_arguments", [{}, {"strategy": "interface_type"}])
+async def test_connect_composition_ports_mcp_workflow(app, boundary, matching_arguments):
+    # arrange
+    component = MagicMock(AutosarType="APPLICATION-SW-COMPONENT-TYPE")
+    composition = MagicMock(AutosarType="COMPOSITION-SW-COMPONENT-TYPE", AUTOSARPathName="/SWA/Top")
+    composition.Components.Elements = [MagicMock(ShortName="A", TypeTref=MagicMock(AUTOSARPathName="/SWA/A"))]
+    composition.Ports.Elements = [MagicMock()] if boundary else []
+    connections = [MagicMock(AutosarType="DELEGATION-SW-CONNECTOR", AUTOSARPathName="/SWA/Top/Delegation")] if boundary else []
+    composition.ConnectPortsOfComposition.return_value = MagicMock(Connections=connections, DelegationPorts=())
+    package = MagicMock(AutosarType="AR-PACKAGE")
+    package.Elements.AddNewCompositionSwComponentType.return_value = composition
+    elements = {"/SWA": package, "/SWA/A": component}
+    app.ActiveProject.GetElementsByARPath.side_effect = lambda path: [elements[path]] if path in elements else []
+
+    # act
+    created = await srv.mcp.call_tool("create_composition", {
+        "composition_path": "/SWA/Top", "component_paths": ["/SWA/A"],
+    })
+    creation_result = json.loads(created.content[0].text)
+    assert creation_result["status"] == "success"
+    elements[creation_result["path"]] = composition
+    app.ActiveProject.GetElementsByARPath.reset_mock()
+    connected = await srv.mcp.call_tool("connect_composition_ports", {
+        "composition_path": creation_result["path"], **matching_arguments,
+    })
+
+    # assert
+    app.ActiveProject.GetElementsByARPath.assert_called_once_with(creation_result["path"])
+    assert json.loads(connected.content[0].text) == {
+        "status": "success", "path": "/SWA/Top", "connection_count": len(connections),
+        "connections": [{"path": connector.AUTOSARPathName, "type": connector.AutosarType}
+                        for connector in connections],
+    }
+    composition.ConnectPortsOfComposition.assert_called_once()
+    configuration = composition.CreatePortConnectorConfiguration.return_value
+    assert configuration.IsInterfaceTypeStrategyChecked is True
+    assert configuration.IsConnectPortsWithoutInterfaceChecked is False
+    assert configuration.IsCreateDelegationPortsChecked is False
+    assert configuration.IsCreateSingleDelegationPortChecked is False
+
+
+@pytest.mark.anyio
+async def test_connect_composition_ports_mcp_rejects_invalid_schema(app):
+    # act / assert
+    with pytest.raises(FastMCPValidationError):
+        await srv.mcp.call_tool("connect_composition_ports", {
+            "composition_path": "/SWA/Top", "strategy": "unknown",
+        })
+    assert not app.mock_calls
 
 
 async def _registered_function_tools(mcp):
