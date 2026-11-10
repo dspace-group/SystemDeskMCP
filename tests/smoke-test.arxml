@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--Created with SystemDesk Release 2025-B (25.1p2)-->
+<!--Created with SystemDesk Release 2025-B (25.1p3)-->
 <AUTOSAR xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://autosar.org/schema/r4.0" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00053.xsd">
   <AR-PACKAGES>
     <AR-PACKAGE UUID="8616653d-8167-4686-b101-87cce86636fe">
       <SHORT-NAME>SWA</SHORT-NAME>
       <ELEMENTS>
-        <COMPOSITION-SW-COMPONENT-TYPE UUID="670f3d3a-58f6-4a7c-9737-6ba1815a3be6">
+      <COMPOSITION-SW-COMPONENT-TYPE UUID="670f3d3a-58f6-4a7c-9737-6ba1815a3be6">
           <SHORT-NAME>RootComposition</SHORT-NAME>
           <COMPONENTS>
             <SW-COMPONENT-PROTOTYPE UUID="5cce4691-98a2-4f97-b020-2ced7f813223">
@@ -38,6 +38,10 @@
               <SHORT-NAME>PPort</SHORT-NAME>
               <PROVIDED-INTERFACE-TREF DEST="SENDER-RECEIVER-INTERFACE">/SWA/SRI_A</PROVIDED-INTERFACE-TREF>
             </P-PORT-PROTOTYPE>
+            <P-PORT-PROTOTYPE UUID="b2d444cc-5992-4b4f-b6e6-9f72d54158dd">
+              <SHORT-NAME>PPort1</SHORT-NAME>
+              <PROVIDED-INTERFACE-TREF DEST="SENDER-RECEIVER-INTERFACE">/SWA/SRI_B</PROVIDED-INTERFACE-TREF>
+            </P-PORT-PROTOTYPE>
           </PORTS>
           <INTERNAL-BEHAVIORS>
             <SWC-INTERNAL-BEHAVIOR UUID="26eeba35-06a9-49bc-a127-17ecda7ffffc">
@@ -60,6 +64,10 @@
             <R-PORT-PROTOTYPE UUID="4016117a-f6c5-4be7-b2c2-f877caae460a">
               <SHORT-NAME>RPort</SHORT-NAME>
               <REQUIRED-INTERFACE-TREF DEST="SENDER-RECEIVER-INTERFACE">/SWA/SRI_B</REQUIRED-INTERFACE-TREF>
+            </R-PORT-PROTOTYPE>
+            <R-PORT-PROTOTYPE UUID="6e38c1a8-1a24-4e23-9019-93311af9245c">
+              <SHORT-NAME>RPort1</SHORT-NAME>
+              <REQUIRED-INTERFACE-TREF DEST="SENDER-RECEIVER-INTERFACE">/SWA/SRI_A</REQUIRED-INTERFACE-TREF>
             </R-PORT-PROTOTYPE>
           </PORTS>
           <INTERNAL-BEHAVIORS>
