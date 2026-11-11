@@ -25,10 +25,14 @@ def test_connect_composition_ports_strategy_mapping(app, strategy, single_only):
     expressions = {"source_expression": "P_<equal>", "target_expression": "R_<equal>"} if strategy == "port_name" else {}
 
     # act
-    result = autosar_composition.connect_composition_ports(
-        composition_path="/SWA/Top", strategy=strategy,
-        single_connections_only=single_only, **expressions,
-    )
+    if strategy == "port_name":
+        result = autosar_composition.connect_composition_ports_by_port_name(
+            composition_path="/SWA/Top", single_connections_only=single_only, **expressions,
+        )
+    else:
+        result = autosar_composition.connect_composition_ports_by_interface(
+            composition_path="/SWA/Top", strategy=strategy, single_connections_only=single_only,
+        )
 
     # assert
     assert result == {
@@ -88,7 +92,7 @@ def test_connect_composition_ports_existing_boundary_ports(port_composition, bou
     port_composition.ConnectPortsOfComposition.return_value.Connections = tuple(connectors)
 
     # act
-    result = autosar_composition.connect_composition_ports(composition_path="/SWA/Top", strategy="interface_type")
+    result = autosar_composition.connect_composition_ports_by_interface(composition_path="/SWA/Top", strategy="interface_type")
 
     # assert
     assert result == {
@@ -115,7 +119,7 @@ def test_connect_composition_ports_multiple_connections_enabled(port_composition
     port_composition.ConnectPortsOfComposition.return_value.Connections = tuple(connectors)
 
     # act
-    result = autosar_composition.connect_composition_ports(composition_path="/SWA/Top", single_connections_only=False)
+    result = autosar_composition.connect_composition_ports_by_interface(composition_path="/SWA/Top", single_connections_only=False)
 
     # assert
     configuration = port_composition.CreatePortConnectorConfiguration.return_value
@@ -133,8 +137,8 @@ def test_connect_composition_ports_multiple_connections_enabled(port_composition
 
 def test_connect_composition_ports_default_strategy(port_composition):
     # act
-    result = autosar_composition.connect_composition_ports(composition_path="/SWA/Top")
-    validate_args(autosar_composition.connect_composition_ports, composition_path="/SWA/Top")
+    result = autosar_composition.connect_composition_ports_by_interface(composition_path="/SWA/Top")
+    validate_args(autosar_composition.connect_composition_ports_by_interface, composition_path="/SWA/Top")
 
     # assert
     assert result["status"] == "success"
@@ -153,7 +157,7 @@ def test_connect_composition_ports_empty_and_fresh_configuration(port_compositio
     port_composition.CreatePortConnectorConfiguration.side_effect = [first, second]
 
     # act
-    results = [autosar_composition.connect_composition_ports(composition_path="/SWA/Top", strategy="interface_name")
+    results = [autosar_composition.connect_composition_ports_by_interface(composition_path="/SWA/Top", strategy="interface_name")
                for _ in range(2)]
 
     # assert
@@ -183,7 +187,7 @@ def test_connect_composition_ports_prechecks(app, port_composition, failure, cod
         port_composition.AutosarType = "APPLICATION-SW-COMPONENT-TYPE"
 
     # act
-    result = autosar_composition.connect_composition_ports(composition_path="/SWA/Top", strategy="interface_type")
+    result = autosar_composition.connect_composition_ports_by_interface(composition_path="/SWA/Top", strategy="interface_type")
 
     # assert
     assert result["status"] == "error"
@@ -194,16 +198,32 @@ def test_connect_composition_ports_prechecks(app, port_composition, failure, cod
     port_composition.Delete.assert_not_called()
 
 
-@pytest.mark.parametrize("arguments", [
-    {"strategy": "unknown"}, {"strategy": "port_name"},
-    {"strategy": "port_name", "source_expression": "P_<equal>"},
-    {"strategy": "port_name", "source_expression": "", "target_expression": "R_<equal>"},
-    {"strategy": "interface_name", "source_expression": "x", "target_expression": "y"},
-    {"strategy": "interface_type", "target_expression": "x"},
-])
+@pytest.mark.parametrize("arguments", [{"strategy": "unknown"}, {"strategy": "port_name"}])
 def test_connect_composition_ports_invalid_configuration(port_composition, arguments):
     # act
-    result = autosar_composition.connect_composition_ports(composition_path="/SWA/Top", **arguments)
+    result = autosar_composition.connect_composition_ports_by_interface(composition_path="/SWA/Top", **arguments)
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "INVALID_PORT_CONNECTOR_CONFIGURATION"
+    port_composition.CreatePortConnectorConfiguration.assert_not_called()
+    port_composition.ConnectPortsOfComposition.assert_not_called()
+
+
+@pytest.mark.parametrize("expressions", [
+    {"source_expression": "", "target_expression": "R_<equal>"},
+    {"source_expression": "P_<equal>", "target_expression": ""},
+    {"source_expression": 42, "target_expression": "R_<equal>"},
+    {"source_expression": "P_<equal>", "target_expression": None},
+    {"source_expression": "P" * 257, "target_expression": "R_<equal>"},
+    {"source_expression": "P_<equal>", "target_expression": "R" * 257},
+])
+def test_connect_composition_ports_by_port_name_invalid_configuration(port_composition, expressions):
+    # act
+    result = autosar_composition.connect_composition_ports_by_port_name(
+        composition_path="/SWA/Top", **expressions,
+    )
 
     # assert
     assert result["status"] == "error"
@@ -234,7 +254,7 @@ def test_connect_composition_ports_failure_preserves_model(port_composition, fai
         result_object.Connections = [MagicMock(spec=["AutosarType"], AutosarType="ASSEMBLY-SW-CONNECTOR")]
 
     # act
-    result = autosar_composition.connect_composition_ports(composition_path="/SWA/Top", strategy="interface_type")
+    result = autosar_composition.connect_composition_ports_by_interface(composition_path="/SWA/Top", strategy="interface_type")
 
     # assert
     assert result["status"] == "error"
@@ -250,7 +270,8 @@ def test_connect_composition_ports_failure_preserves_model(port_composition, fai
 
 @pytest.mark.parametrize("arguments", [
     {"composition_path": "/SWA"}, {"composition_path": "relative/Top"},
-    {"strategy": "unknown"}, {"source_expression": ""}, {"target_expression": 42},
+    {"strategy": "unknown"}, {"strategy": "port_name"}, {"strategy": None},
+    {"source_expression": "P_<equal>"}, {"target_expression": "R_<equal>"},
     {"timeout": 0}, {"timeout": 3601},
 ])
 def test_connect_composition_ports_invalid_schema(arguments):
@@ -259,14 +280,72 @@ def test_connect_composition_ports_invalid_schema(arguments):
 
     # act / assert
     with pytest.raises(ValidationError):
-        validate_args(autosar_composition.connect_composition_ports, **parameters)
+        validate_args(autosar_composition.connect_composition_ports_by_interface, **parameters)
+
+
+@pytest.mark.parametrize("strategy", ["interface_name", "interface_type"])
+@pytest.mark.parametrize("timeout", [1, 3600])
+def test_connect_composition_ports_valid_schema(strategy, timeout):
+    # act / assert
+    validate_args(autosar_composition.connect_composition_ports_by_interface, composition_path="/SWA/Top",
+                  strategy=strategy, timeout=timeout)
+
+
+@pytest.mark.parametrize("arguments", [
+    {}, {"source_expression": "P_<equal>"}, {"target_expression": "R_<equal>"},
+    {"source_expression": "", "target_expression": "R_<equal>"},
+    {"source_expression": "P_<equal>", "target_expression": ""},
+    {"source_expression": None, "target_expression": "R_<equal>"},
+    {"source_expression": "P_<equal>", "target_expression": 42},
+    {"source_expression": "P" * 257, "target_expression": "R_<equal>"},
+    {"source_expression": "P_<equal>", "target_expression": "R" * 257},
+    {"source_expression": "P_<equal>", "target_expression": "R_<equal>", "strategy": "port_name"},
+    {"source_expression": "P_<equal>", "target_expression": "R_<equal>", "timeout": 0},
+    {"source_expression": "P_<equal>", "target_expression": "R_<equal>", "composition_path": "/SWA"},
+])
+def test_connect_composition_ports_by_port_name_invalid_schema(arguments):
+    # arrange
+    parameters = {"composition_path": "/SWA/Top", **arguments}
+
+    # act / assert
+    with pytest.raises(ValidationError):
+        validate_args(autosar_composition.connect_composition_ports_by_port_name, **parameters)
 
 
 @pytest.mark.parametrize("timeout", [1, 3600])
-def test_connect_composition_ports_valid_schema(timeout):
+def test_connect_composition_ports_by_port_name_valid_schema(timeout):
     # act / assert
-    validate_args(autosar_composition.connect_composition_ports, composition_path="/SWA/Top", strategy="port_name",
+    validate_args(autosar_composition.connect_composition_ports_by_port_name, composition_path="/SWA/Top",
                   source_expression="P_<equal>", target_expression="R_<equal>", timeout=timeout)
+
+
+def test_connect_composition_ports_by_port_name_accepts_maximum_length(port_composition):
+    # arrange
+    arguments = {"composition_path": "/SWA/Top", "source_expression": "P" * 256, "target_expression": "R" * 256}
+
+    # act
+    validate_args(autosar_composition.connect_composition_ports_by_port_name, **arguments)
+    result = autosar_composition.connect_composition_ports_by_port_name(**arguments)
+
+    # assert
+    assert result["status"] == "success"
+    port_composition.ConnectPortsOfComposition.assert_called_once()
+
+
+@pytest.mark.parametrize("expression", ["(", "[", "*", "no_such_port"])
+def test_connect_composition_ports_by_port_name_non_matching_expression_succeeds(port_composition, expression):
+    # arrange
+    configuration = port_composition.CreatePortConnectorConfiguration.return_value
+
+    # act
+    result = autosar_composition.connect_composition_ports_by_port_name(
+        composition_path="/SWA/Top", source_expression=expression, target_expression=expression,
+    )
+
+    # assert
+    assert result == {"status": "success", "path": "/SWA/Top", "connection_count": 0, "connections": []}
+    assert configuration.SourceExpression == expression
+    assert configuration.TargetExpression == expression
 
 
 def test_connect_composition_ports_timeout_does_not_cancel(monkeypatch, app):
@@ -277,7 +356,7 @@ def test_connect_composition_ports_timeout_does_not_cancel(monkeypatch, app):
     monkeypatch.setattr(runtime, "_com_executor", executor)
 
     # act
-    result = autosar_composition.connect_composition_ports(composition_path="/SWA/Top", strategy="interface_type", timeout=1)
+    result = autosar_composition.connect_composition_ports_by_interface(composition_path="/SWA/Top", strategy="interface_type", timeout=1)
 
     # assert
     assert result["status"] == "error"

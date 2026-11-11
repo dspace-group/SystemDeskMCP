@@ -40,7 +40,7 @@ async def test_connect_composition_ports_mcp_workflow(app, boundary, matching_ar
     assert creation_result["status"] == "success"
     elements[creation_result["path"]] = composition
     app.ActiveProject.GetElementsByARPath.reset_mock()
-    connected = await srv.mcp.call_tool("connect_composition_ports", {
+    connected = await srv.mcp.call_tool("connect_composition_ports_by_interface", {
         "composition_path": creation_result["path"], **matching_arguments,
     })
 
@@ -63,10 +63,64 @@ async def test_connect_composition_ports_mcp_workflow(app, boundary, matching_ar
 async def test_connect_composition_ports_mcp_rejects_invalid_schema(app):
     # act / assert
     with pytest.raises(FastMCPValidationError):
-        await srv.mcp.call_tool("connect_composition_ports", {
+        await srv.mcp.call_tool("connect_composition_ports_by_interface", {
             "composition_path": "/SWA/Top", "strategy": "unknown",
         })
     assert not app.mock_calls
+
+
+@pytest.mark.anyio
+async def test_connect_composition_ports_by_port_name_mcp_workflow(app):
+    # arrange
+    composition = MagicMock(AutosarType="COMPOSITION-SW-COMPONENT-TYPE", AUTOSARPathName="/SWA/Top")
+    composition.ConnectPortsOfComposition.return_value = MagicMock(Connections=(), DelegationPorts=())
+    app.ActiveProject.GetElementsByARPath.return_value = [composition]
+
+    # act
+    result = await srv.mcp.call_tool("connect_composition_ports_by_port_name", {
+        "composition_path": "/SWA/Top", "source_expression": "P_<equal>", "target_expression": "R_<equal>",
+    })
+
+    # assert
+    assert json.loads(result.content[0].text) == {
+        "status": "success", "path": "/SWA/Top", "connection_count": 0, "connections": [],
+    }
+    configuration = composition.CreatePortConnectorConfiguration.return_value
+    assert configuration.IsPortNameStrategyChecked is True
+    assert configuration.IsInterfaceNameStrategyChecked is False
+    assert configuration.IsInterfaceTypeStrategyChecked is False
+    assert configuration.SourceExpression == "P_<equal>"
+    assert configuration.TargetExpression == "R_<equal>"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tool,arguments", [
+    ("connect_composition_ports_by_interface", {"strategy": "port_name"}),
+    ("connect_composition_ports_by_interface", {"source_expression": "P_<equal>", "target_expression": "R_<equal>"}),
+    ("connect_composition_ports_by_port_name", {}),
+    ("connect_composition_ports_by_port_name", {"source_expression": "P_<equal>"}),
+    ("connect_composition_ports_by_port_name", {"source_expression": "", "target_expression": "R_<equal>"}),
+    ("connect_composition_ports_by_port_name", {
+        "strategy": "port_name", "source_expression": "P_<equal>", "target_expression": "R_<equal>",
+    }),
+])
+async def test_connect_composition_ports_mcp_rejects_invalid_combinations(app, tool, arguments):
+    # act / assert
+    with pytest.raises(FastMCPValidationError):
+        await srv.mcp.call_tool(tool, {"composition_path": "/SWA/Top", **arguments})
+    assert not app.mock_calls
+
+
+@pytest.mark.anyio
+async def test_tool_schemas_have_no_top_level_combinators():
+    # Some clients reject tool input schemas that start with a combinator.
+    tools = await _registered_function_tools(srv.mcp)
+
+    for tool in tools:
+        assert not {"oneOf", "anyOf", "allOf", "not", "enum"} & tool.parameters.keys(), (
+            f"Tool '{tool.name}': input schema must not use top-level combinators."
+        )
+        assert tool.parameters.get("type") == "object"
 
 
 async def _registered_function_tools(mcp):

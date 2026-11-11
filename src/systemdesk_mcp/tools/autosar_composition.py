@@ -126,34 +126,37 @@ class PortConnectionStrategy(str, Enum):
     INTERFACE_TYPE = "interface_type"
 
 
+class InterfaceMatchStrategy(str, Enum):
+    """Expression-free subset of PortConnectionStrategy."""
+
+    INTERFACE_NAME = "interface_name"
+    INTERFACE_TYPE = "interface_type"
+
+
+# Chosen limit, not a documented SystemDesk one.
+_MAX_EXPRESSION_LENGTH = 256
+
+
 @mcp.tool(
-    title="Connect Composition Ports",
+    title="Connect Composition Ports By Interface",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": False,
-        "idempotentHint": False,
+        "idempotentHint": True,
         "openWorldHint": False,
     },
     output_schema=None,
 )
 @logged
 @on_com_thread
-def connect_composition_ports(  # pylint: disable=too-many-arguments
+def connect_composition_ports_by_interface(
     composition_path: Annotated[AutosarElementPath, Field(
         description="Absolute AUTOSAR path of an existing composition. Example: '/SWA/Top'",
     )],
-    strategy: Annotated[PortConnectionStrategy, Field(
-        description="Matching strategy; defaults to interface_type. Options: port_name, interface_name, interface_type. Example: 'port_name'",
-    )] = PortConnectionStrategy.INTERFACE_TYPE,
+    strategy: Annotated[InterfaceMatchStrategy, Field(
+        description="Interface matching strategy; defaults to interface_type. Options: interface_name, interface_type. Example: 'interface_name'",
+    )] = InterfaceMatchStrategy.INTERFACE_TYPE,
     *,
-    source_expression: Annotated[str | None, Field(
-        min_length=1,
-        description="SystemDesk provided-port expression; required only for port_name. Example: 'P_<equal>'",
-    )] = None,
-    target_expression: Annotated[str | None, Field(
-        min_length=1,
-        description="SystemDesk required-port expression; required only for port_name. Example: 'R_<equal>'",
-    )] = None,
     single_connections_only: Annotated[bool, Field(
         description=(
             "True restricts matching to ports with exactly one possible connection; "
@@ -164,21 +167,27 @@ def connect_composition_ports(  # pylint: disable=too-many-arguments
         description="Maximum seconds to wait; timed-out work continues. Example: 60",
     )] = 60,
 ) -> dict[str, Any]:
-    """Connect open ports using SystemDesk's ConnectPortsOfComposition matcher.
+    """Connect open ports by interface using SystemDesk's ConnectPortsOfComposition matcher.
 
     Preconditions: start_systemdesk must be called first; a project must be open.
     Connects inner component ports and existing composition boundary ports using
-    assembly and delegation connectors. Port-name matching requires both expressions; interface strategies reject
-    expressions. SystemDesk expressions and macros are passed through unchanged.
-    Strategy defaults to interface_type, using all interfaces without expressions.
+    assembly and delegation connectors. Use connect_composition_ports_by_port_name
+    for port-name matching with expressions.
+    Strategy defaults to interface_type, using all interfaces.
     Set single_connections_only=False to allow multiple connections per port,
     subject to SystemDesk's interface and connection rules.
     New port creation, closed-loop
     connections and connections without interfaces are disabled.
     Returns path, connection_count and connections (path/type), alongside status.
     No matches is success. Does not save, validate, retry, or roll back the model.
-    On mutation/readback failure the model may have changed. After a timeout call
-    get_systemdesk_status before inspecting the model or retrying.
+    Repeating a successful call with the same inputs and an unchanged model
+    connects no additional ports and returns connection_count=0.
+    On mutation/readback failure the model may have changed.
+    After TIMEOUT, call get_systemdesk_status and wait for its response before
+    inspecting the model or retrying. It queues behind the timed-out operation
+    on the same COM worker, so receiving its response confirms that operation
+    has finished. The status response does not report whether that operation
+    succeeded; inspect the resulting model before deciding whether to retry.
 
     Failure codes (error_type / error_code: condition):
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
@@ -186,10 +195,14 @@ def connect_composition_ports(  # pylint: disable=too-many-arguments
     - permanent / AUTOSAR_ELEMENT_NOT_FOUND: composition path does not exist
     - permanent / AMBIGUOUS_AUTOSAR_PATH: path identifies multiple elements
     - permanent / INVALID_AUTOSAR_ELEMENT_TYPE: element is not a composition
-    - permanent / INVALID_PORT_CONNECTOR_CONFIGURATION: invalid strategy/expression combination
+    - permanent / INVALID_PORT_CONNECTOR_CONFIGURATION: unsupported strategy
     - transient / TIMEOUT: wait timed out; operation continues
     - permanent / UNEXPECTED_ERROR: configuration, matching, or result readback failed
     """
+    return _connect_ports(composition_path, strategy, None, None, single_connections_only)
+
+
+def _connect_ports(composition_path, strategy, source_expression, target_expression, single_connections_only):
     matching_started = False
     try:
         project = get_active_project()
@@ -245,16 +258,109 @@ def connect_composition_ports(  # pylint: disable=too-many-arguments
         )
 
 
+@mcp.tool(
+    title="Connect Composition Ports By Port Name",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    output_schema=None,
+)
+@logged
+@on_com_thread
+def connect_composition_ports_by_port_name(
+    composition_path: Annotated[AutosarElementPath, Field(
+        description="Absolute AUTOSAR path of an existing composition. Example: '/SWA/Top'",
+    )],
+    source_expression: Annotated[str, Field(
+        min_length=1,
+        max_length=_MAX_EXPRESSION_LENGTH,
+        description=(
+            "Regular expression for provided-port names, applied as SystemDesk's common name pattern. "
+            "Macros pass through unchanged: <SWC> (software component type name), "
+            "<Interface> (interface name), <equal>. 1-256 characters, syntax not validated. "
+            "Example: 'P_<equal>'"
+        ),
+    )],
+    target_expression: Annotated[str, Field(
+        min_length=1,
+        max_length=_MAX_EXPRESSION_LENGTH,
+        description=(
+            "Regular expression for required-port names, applied as SystemDesk's common name pattern. "
+            "Macros pass through unchanged: <SWC> (software component type name), "
+            "<Interface> (interface name), <equal>. 1-256 characters, syntax not validated. "
+            "Example: 'R_<equal>'"
+        ),
+    )],
+    *,
+    single_connections_only: Annotated[bool, Field(
+        description=(
+            "True restricts matching to ports with exactly one possible connection; "
+            "False allows multiple connections per port, subject to SystemDesk rules. Example: False"
+        ),
+    )] = True,
+    timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument
+        description="Maximum seconds to wait; timed-out work continues. Example: 60",
+    )] = 60,
+) -> dict[str, Any]:
+    """Connect open ports by port name using SystemDesk's ConnectPortsOfComposition matcher.
+
+    Preconditions: start_systemdesk must be called first; a project must be open.
+    Connects inner component ports and existing composition boundary ports using
+    assembly and delegation connectors, matching provided and required port names
+    with both expressions. Use connect_composition_ports_by_interface for interface matching.
+    Expressions are regular expressions for the provided and required port names,
+    applied as SystemDesk's common name pattern. Macros pass through unchanged:
+    <SWC> (software component type name), <Interface> (interface name), <equal>.
+    SystemDesk does not report malformed or non-matching expressions: they create no
+    connections and the call succeeds with connection_count=0, so check the count
+    and the expressions before assuming ports were connected.
+    The only rejected expressions are empty, longer than 256 characters, or not strings.
+    Set single_connections_only=False to allow multiple connections per port,
+    subject to SystemDesk's interface and connection rules.
+    New port creation, closed-loop connections and connections without interfaces
+    are disabled.
+    Returns path, connection_count and connections (path/type), alongside status.
+    No matches is success. Does not save, validate, retry, or roll back the model.
+    Repeating a successful call with the same inputs and an unchanged model
+    connects no additional ports and returns connection_count=0.
+    On mutation/readback failure the model may have changed.
+    After TIMEOUT, call get_systemdesk_status and wait for its response before
+    inspecting the model or retrying; the response confirms completion, not success.
+
+    Failure codes (error_type / error_code: condition):
+    - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
+    - permanent / NO_PROJECT_OPEN: no project currently open
+    - permanent / AUTOSAR_ELEMENT_NOT_FOUND: composition path does not exist
+    - permanent / AMBIGUOUS_AUTOSAR_PATH: path identifies multiple elements
+    - permanent / INVALID_AUTOSAR_ELEMENT_TYPE: element is not a composition
+    - permanent / INVALID_PORT_CONNECTOR_CONFIGURATION: expression is empty, too long, or not a string
+    - transient / TIMEOUT: wait timed out; operation continues
+    - permanent / UNEXPECTED_ERROR: configuration, matching, or result readback failed
+    """
+    return _connect_ports(
+        composition_path, PortConnectionStrategy.PORT_NAME,
+        source_expression, target_expression, single_connections_only,
+    )
+
+
 def _check_port_connection_arguments(strategy, source_expression, target_expression):
-    valid_strategy = strategy in tuple(PortConnectionStrategy)
     if strategy == PortConnectionStrategy.PORT_NAME:
-        valid_expressions = bool(source_expression) and bool(target_expression)
+        valid = all(
+            isinstance(expression, str) and 0 < len(expression) <= _MAX_EXPRESSION_LENGTH
+            for expression in (source_expression, target_expression)
+        )
     else:
-        valid_expressions = source_expression is None and target_expression is None
-    if not valid_strategy or not valid_expressions:
+        valid = (
+            strategy in tuple(InterfaceMatchStrategy)
+            and source_expression is None and target_expression is None
+        )
+    if not valid:
         raise PermanentError(
-            "Select a valid strategy. Both expressions are required for port_name; "
-            "omit expressions for interface_name and interface_type.",
+            "Select a valid strategy. port_name requires both expressions with 1-256 characters; "
+            "interface_name and interface_type accept none.",
             error_code=ErrorCode.INVALID_PORT_CONNECTOR_CONFIGURATION,
         )
 
