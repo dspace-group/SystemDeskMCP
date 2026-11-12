@@ -142,11 +142,15 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
         description=(
             "Absolute AUTOSAR path of the SwComponentType to create the V-ECU from, e.g. a composition "
             "created by create_composition. Defaults to the first composition, else the first application, "
-            "else the first sensor-actuator SW component type in the project. Example: '/SWA/MyComposition'"
+            "else the first sensor-actuator SW component type in the project. "
+            "Ignored when an existing V-ECU is reused. Example: '/SWA/MyComposition'"
         ),
     )] = None,
     system_name: Annotated[Optional[AutosarShortName], Field(
-        description="AUTOSAR short name of the system to create. Example: 'MySystem'",
+        description=(
+            "AUTOSAR short name of the system to create. Ignored when an existing V-ECU is reused. "
+            "Example: 'MySystem'"
+        ),
     )] = None,
     predefined_ecu_configuration: Annotated[Literal[
         "Default ECU Configuration for V-ECU FMUs (FMI 2.0)",
@@ -160,14 +164,14 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
         description=(
             "Exact name of the predefined ECU configuration. If the user made a typo or only described "
             "what they want (e.g. with/without network, FMI 2/3), choose the closest matching value. "
-            "Example: 'Default ECU Configuration for V-ECU FMUs (FMI 3.0)'"
+            "Ignored when an existing V-ECU is reused. Example: 'Default ECU Configuration for V-ECU FMUs (FMI 3.0)'"
         ),
     )] = "Default ECU Configuration for V-ECU FMUs (FMI 3.0)",
     generate_dap_for_atomic_ports: Annotated[Optional[bool], Field(
         description=(
             "Automatically create data access points (DAPs) for the unconnected atomic port interface "
             "elements of the V-ECU, so all unconnected atomic ports can be accessed via RTE interventions "
-            "(see configure_rte_interventions). Example: true"
+            "(see configure_rte_interventions). Ignored when an existing V-ECU is reused. Example: true"
         ),
     )] = None,
     generate_dap_for_root_composition_ports: Annotated[Optional[bool], Field(
@@ -175,18 +179,21 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
             "Automatically create data access points (DAPs) for the delegation ports of the root "
             "composition, so the external communication of the V-ECU (all unconnected ports of inner "
             "compositions and the root composition) can be accessed via RTE interventions "
-            "(see configure_rte_interventions). Example: true"
+            "(see configure_rte_interventions). Ignored when an existing V-ECU is reused. Example: true"
         ),
     )] = None,
     create_runnable_mapping: Annotated[Optional[bool], Field(
-        description="Create the runnable mapping. Defaults to true. Example: true",
+        description=(
+            "Create the runnable mapping of the new V-ECU. Defaults to true. "
+            "Ignored when an existing V-ECU is reused. Example: true"
+        ),
     )] = True,
     rte_calibration_support: Annotated[Optional[Literal["INITIALIZED_RAM", "NONE", "OFFLINE"]], Field(
         description=(
             "RTE calibration support. 'INITIALIZED_RAM': values can be changed at run time "
             "(software support necessary). 'NONE': no calibration support. "
             "'OFFLINE': values can be changed in the HEX file and flashed to the ECU. "
-            "Example: 'NONE'"
+            "Ignored when an existing V-ECU is reused. Example: 'NONE'"
         ),
     )] = None,
     rte_simulation_logging: Annotated[Optional[Literal["NONE", "SIMULATION"]], Field(
@@ -194,16 +201,19 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
             "RTE simulation logging. 'NONE': only variables with measurement access specified in the "
             "software architecture can be measured in a simulation. 'SIMULATION': global variables are "
             "generated for all data elements, inter-runnable variables and operation arguments, so all "
-            "of them can be measured in a simulation. Example: 'SIMULATION'"
+            "of them can be measured in a simulation. Ignored when an existing V-ECU is reused. "
+            "Example: 'SIMULATION'"
         ),
     )] = None,
     rte_measurement_support: Annotated[Optional[bool], Field(
-        description="Enable RTE measurement support. Example: true",
+        description="Enable RTE measurement support. Ignored when an existing V-ECU is reused. Example: true",
     )] = None,
     auto_configure_and_generate: Annotated[bool, Field(
         description=(
             "Automatically configure and generate the V-ECU implementation (validation, module "
-            "configuration, BSW generation, and code generation). Example: false"
+            "configuration, BSW generation, and code generation) of the newly created V-ECU. "
+            "Ignored when an existing V-ECU is reused, so generated content of an existing V-ECU is "
+            "never overwritten; use generate_vecu_bsw for that. Example: false"
         ),
     )] = False,
     timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
@@ -217,8 +227,13 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
     only if reuse_existing_vecu is true.
     Creation (no V-ECU reused): from component_path if given, else the first composition,
     application, or sensor-actuator SW component type (in this order). The new V-ECU is named
-    vecu_name if given. The creation options (system_name, predefined_ecu_configuration, ...)
-    only apply to creation; options left unset keep the SystemDesk defaults.
+    vecu_name if given.
+    Creation-only options: component_path, system_name, predefined_ecu_configuration,
+    generate_dap_for_atomic_ports, generate_dap_for_root_composition_ports, create_runnable_mapping,
+    rte_calibration_support, rte_simulation_logging, rte_measurement_support and
+    auto_configure_and_generate. They are ignored when an existing V-ECU is reused, so a reused
+    V-ECU is returned unchanged (no generation is run on it). Options left unset keep the
+    SystemDesk defaults.
     Creation is additive: SystemDesk creates the V-ECU elements in a new package and never
     overwrites existing elements, even if system_name or vecu_name clash with existing names.
     Repeated calls: with vecu_name, later calls reuse the V-ECU created by the first call.

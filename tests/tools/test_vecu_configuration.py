@@ -923,11 +923,30 @@ def test_interventions_enable_false_disables_code_generation(world):
     assert world.rti.InterventionEnableCodeGeneration is False
 
 
+def test_interventions_empty_list_only_sets_enable(world):
+    # arrange
+    world.rti.InterventionEnableCodeGeneration = True
+    unmapped = Point(world.component, "PpOut", "Result", WRITE)
+    world.rti.existing = [unmapped]
+    world.rti.possible = [Point(world.component, "RpIn", "Value", READ)]
+
+    # act
+    result = vc.configure_rte_interventions(intervention_points=[], enable=False)
+
+    # assert
+    assert result["status"] == "success"
+    assert result["points_created"] == []
+    assert result["services_created"] == []
+    assert result["enabled"] is False
+    assert len(world.rti.possible) == 1
+    assert world.rti.InterventionServices.Elements == []
+    assert unmapped.service is None
+
+
 @pytest.mark.parametrize(
     "arguments",
     [
         {"access": "both"},
-        {"intervention_points": []},
         {"intervention_points": [{"component": "C", "port": "P"}]},
         {"intervention_points": [{"component": "C", "port": "P", "data_element": "D", "extra": 1}]},
     ],

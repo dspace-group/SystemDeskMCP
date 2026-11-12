@@ -653,10 +653,10 @@ def _map_points_to_service(rte_interventions, key: PointKey, points: list[Any], 
 def configure_rte_interventions(  # pylint: disable=too-many-locals
     vecu_name: VecuNameParam = None,
     intervention_points: Annotated[Optional[list[InterventionPointSpec]], Field(
-        min_length=1,
         description=(
-            "Port data elements to create RTE intervention points for. Defaults to all possible points, "
-            "as listed by get_vecu_configuration (rte_intervention_points). "
+            "Port data elements to create RTE intervention points for. Omitted or null: all possible points, "
+            "as listed by get_vecu_configuration (rte_intervention_points). Empty list []: no points or "
+            "services are created, e.g. to only set enable. "
             "Example: [{'component': 'FuelsysController', 'port': 'RpCorrectedSensors', 'data_element': 'Sensors'}]"
         ),
     )] = None,
@@ -667,14 +667,20 @@ def configure_rte_interventions(  # pylint: disable=too-many-locals
         ),
     )] = "dap",
     enable: Annotated[bool, Field(
-        description="Whether RTE intervention code generation is enabled for the V-ECU. Example: true",
+        description=(
+            "Value to set for the V-ECU's RTE intervention code generation switch. Independent of "
+            "intervention_points: points are created as selected by intervention_points also when enable is "
+            "false, and existing points and services are never removed. To only switch code generation off, "
+            "pass enable=false with intervention_points=[]. Example: true"
+        ),
     )] = True,
     timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
         description="Maximum number of seconds to wait for the configuration to complete. Example: 240",
     )] = 240,
 ) -> dict[str, Any]:
     """
-    Create RTE intervention points and services for port data elements and enable RTE interventions.
+    Create RTE intervention points and services for port data elements and set the RTE intervention
+    code generation switch.
 
     With RTE interventions, the simulation can overwrite the communication of SW components,
     e.g. to stimulate an input or to inject an error. Only port data elements of SW components are
@@ -692,8 +698,12 @@ def configure_rte_interventions(  # pylint: disable=too-many-locals
     intervention services is never changed: access only applies to newly created points and to
     existing points without a service. Use get_vecu_configuration (rte_interventions) to check the
     access of existing points.
-    Sets the V-ECU's RTE intervention code generation switch to enable. Changes are not saved;
-    use close_project(save_project=true).
+    Pass intervention_points=[] to create no points or services.
+    Sets the V-ECU's RTE intervention code generation switch to enable (default true). enable does
+    not affect which points are created: with enable=false, the points selected by
+    intervention_points (all possible points if omitted) are still created, and existing points and
+    services are kept. To only switch code generation off, pass enable=false and intervention_points=[].
+    Changes are not saved; use close_project(save_project=true).
 
     Preconditions: start_systemdesk must be called first; a project with a V-ECU must be open.
     vecu_name may be omitted only if the project contains exactly one V-ECU.
