@@ -365,7 +365,7 @@ def test_export_vecu_fmu_generates_build_script_when_build_script_property_fails
 
 
 @pytest.mark.usefixtures("no_files")
-def test_export_vecu_fmu_ignores_only_expected_errors_and_reports_build_log(app):
+def test_export_vecu_fmu_ignores_only_generic_errors_and_reports_build_log(app):
     # arrange
     v_ecu = _vecu()
     v_ecu.GetNewExportFmuSettings.return_value = SimpleNamespace(Result=_build_result(
@@ -414,11 +414,11 @@ def test_export_vecu_fmu_reports_build_log_not_found(app):
 
 
 @pytest.mark.usefixtures("no_files")
-def test_export_vecu_fmu_reports_unexpected_errors_with_children(app):
+def test_export_vecu_fmu_reports_specific_errors_with_children(app):
     # arrange
     v_ecu = _vecu()
     v_ecu.GetNewExportFmuSettings.return_value = SimpleNamespace(Result=_build_result(
-        _build_message("Error(102,110,5)", "Expected"),
+        _build_message("Error(102,110,5)", "Generic"),
         _build_message("Error(9,9,9)", "Compiler failed", children=[
             _build_message("Error(9,9,10)", "Missing header"),
         ]),

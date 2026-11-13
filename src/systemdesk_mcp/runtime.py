@@ -17,7 +17,6 @@ from systemdesk_mcp import __version__
 from systemdesk_mcp.common import ErrorCode, PermanentError, error_response
 
 _application = None  # pylint: disable=invalid-name
-_last_vecu = None  # pylint: disable=invalid-name
 
 
 def get_app():
@@ -92,9 +91,8 @@ _com_executor = concurrent.futures.ThreadPoolExecutor(
 def _shutdown_com_executor():
     try:
         def _cleanup():
-            global _application, _last_vecu  # pylint: disable=global-statement
+            global _application  # pylint: disable=global-statement
             _application = None
-            _last_vecu = None
             pythoncom.CoUninitialize()
         _com_executor.submit(_cleanup).result(timeout=5)
     except Exception:  # pylint: disable=broad-exception-caught

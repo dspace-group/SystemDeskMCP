@@ -316,7 +316,7 @@ def create_composition(
                 error_code=ErrorCode.AUTOSAR_ELEMENT_ALREADY_EXISTS,
             )
 
-        components = [_resolve_component(project, path) for path in component_paths]
+        components = [resolve_component(project, path) for path in component_paths]
         *package_names, composition_name = composition_path.strip("/").split("/")
 
         parent = project.RootAutosar
@@ -361,7 +361,12 @@ def create_composition(
         )
 
 
-def _resolve_component(project, path):
+def resolve_component(project, path):
+    """Return the SW component type at the AUTOSAR path in project.
+
+    Raises AUTOSAR_ELEMENT_NOT_FOUND if no element exists at path, AMBIGUOUS_AUTOSAR_PATH if path
+    identifies several elements, and INVALID_AUTOSAR_ELEMENT_TYPE if the element is not a SwComponentType.
+    """
     matches = project.GetElementsByARPath(path)
     if not matches:
         raise PermanentError(

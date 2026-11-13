@@ -18,7 +18,8 @@ def _component(short_name, options=None, v_ecu=None, autosar_type="COMPOSITION-S
     component.ShortName = short_name
     component.AUTOSARPathName = f"/SWA/{short_name}"
     component.AutosarType = autosar_type
-    component.GetNewCreateVEcuOptions.return_value = options if options is not None else SimpleNamespace()
+    component.GetNewCreateVEcuOptions.return_value = options if options is not None else SimpleNamespace(
+        Ecu="/Ecus/DefaultEcu")
     component.CreateVEcu.return_value = v_ecu
     return component
 
@@ -102,7 +103,6 @@ def test_get_or_create_vecu_reuses_vecu_by_name(app):
     assert result["system_path"] == "/Systems/MyVEcu_System"
     assert result["ecu_configuration"] == "MyVEcu_EcuConfiguration"
     assert result["message"] == "Reusing existing V-ECU 'MyVEcu'."
-    assert runtime._last_vecu is v_ecu
     app.ActiveProject.VEcus.Item.assert_called_once_with("MyVEcu")
     app.ActiveProject.FindChildElements.assert_not_called()
 
@@ -121,7 +121,6 @@ def test_get_or_create_vecu_reuses_first_vecu_when_requested(app):
     assert result["created"] is False
     assert result["vecu_name"] == "FirstVEcu"
     assert result["message"] == "Reusing existing V-ECU 'FirstVEcu'."
-    assert runtime._last_vecu is first
     app.ActiveProject.VEcus.Item.assert_not_called()
     app.ActiveProject.FindChildElements.assert_not_called()
 
@@ -202,7 +201,6 @@ def test_get_or_create_vecu_creates_vecu_with_defaults(app):
         "CreateRunnableMapping": True,
         "AutoConfigureAndGenerate": False,
     }
-    assert runtime._last_vecu is v_ecu
     app.ActiveProject.FindChildElements.assert_called_once_with("COMPOSITION-SW-COMPONENT-TYPE")
 
 
@@ -468,7 +466,6 @@ def test_get_or_create_vecu_component_path_not_found(app):
     assert result["error_type"] == "permanent"
     assert result["error_code"] == "AUTOSAR_ELEMENT_NOT_FOUND"
     assert "'/SWA/Missing'" in result["message"]
-    assert runtime._last_vecu is None
 
 
 def test_get_or_create_vecu_component_path_ambiguous(app):
@@ -539,7 +536,6 @@ def test_get_or_create_vecu_creation_returns_none_with_messages(app):
         {"MessageIdentifier": "Error(4,5,6)", "MessageText": "First error"},
         {"MessageIdentifier": "Error(7,8,9)", "MessageText": "Second error"},
     ]
-    assert runtime._last_vecu is None
 
 
 def test_get_or_create_vecu_creation_returns_none_without_messages(app):
@@ -575,7 +571,6 @@ def test_get_or_create_vecu_com_failure(app, failing_call):
     assert result["error_type"] == "permanent"
     assert result["error_code"] == "UNEXPECTED_ERROR"
     assert result["details"] == "COM failure"
-    assert runtime._last_vecu is None
 
 
 @pytest.mark.parametrize("timeout", [0, -1, common.MAX_TIMEOUT_SECONDS + 1])

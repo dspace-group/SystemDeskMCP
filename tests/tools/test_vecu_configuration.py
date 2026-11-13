@@ -135,6 +135,13 @@ class RteInterventions:
         self.InterventionServices = SimpleNamespace(Elements=[], AddNew=self._add_service)
         self.InterventionEnableCodeGeneration = False
         self.kind_options = []
+        self.delayed_mode_calls = []
+
+    def EnterDelayedMode(self):
+        self.delayed_mode_calls.append("enter")
+
+    def ExitDelayedMode(self):
+        self.delayed_mode_calls.append("exit")
 
     def _add_service(self, name):
         service = Service(name)
@@ -382,7 +389,10 @@ def test_get_returns_all_sections_by_default(world):
     # assert
     assert result["status"] == "success"
     assert result["vecu_name"] == "Test_Ecu"
-    assert list(result) == ["status", "vecu_name", "runnables", "os_tasks", "rte_intervention_points", "rte_interventions"]
+    assert list(result) == [
+        "status", "vecu_name", "runnables", "os_tasks",
+        "possible_rte_intervention_points", "existing_rte_intervention_points",
+    ]
     assert result["runnables"][1] == {
         "component": "Ctrl", "runnable": "Calc", "rte_event": "Calc10ms", "event_type": "TIMING-EVENT",
         "period_ms": 10.0, "mapped_task": "Task10ms", "position": 1,
@@ -417,10 +427,11 @@ def test_get_runnables_without_rte_module(world):
     assert [r["mapped_task"] for r in result["runnables"]] == [None, None, None, None]
 
 
-def test_get_runnables_skips_component_without_internal_behaviors(world):
+@pytest.mark.parametrize("autosar_type", ["COMPOSITION-SW-COMPONENT-TYPE", "PARAMETER-SW-COMPONENT-TYPE"])
+def test_get_runnables_skips_component_without_internal_behaviors(world, autosar_type):
     # arrange
-    composition = SimpleNamespace(ShortName="Comp", TypeTref=SimpleNamespace(AutosarType="COMPOSITION-SW-COMPONENT-TYPE"))
-    world.ecu.EcuExtractSystem.RootSwCompositionPrototype.SoftwareCompositionTref.Components.Elements.append(composition)
+    component = SimpleNamespace(ShortName="NoBehavior", TypeTref=SimpleNamespace(AutosarType=autosar_type))
+    world.ecu.EcuExtractSystem.RootSwCompositionPrototype.SoftwareCompositionTref.Components.Elements.append(component)
 
     # act
     result = vc.get_vecu_configuration(sections=["runnables"])
@@ -441,7 +452,7 @@ def test_get_os_tasks_without_os_module(world):
     assert result["os_tasks"] == []
 
 
-def test_get_intervention_points_are_unique_and_skip_irv_and_service_components(world):
+def test_get_possible_intervention_points_are_unique_and_skip_irv_and_service_components(world):
     # arrange
     world.rti.possible = [
         Point(world.component, "RpIn", "Value", READ, runnable="A"),
@@ -452,17 +463,17 @@ def test_get_intervention_points_are_unique_and_skip_irv_and_service_components(
     ]
 
     # act
-    result = vc.get_vecu_configuration(sections=["rte_intervention_points"])
+    result = vc.get_vecu_configuration(sections=["possible_rte_intervention_points"])
 
     # assert
-    assert result["rte_intervention_points"] == [
+    assert result["possible_rte_intervention_points"] == [
         {"component": "Ctrl", "port": "RpIn", "data_element": "Value"},
         {"component": "Ctrl", "port": "PpOut", "data_element": "Result"},
     ]
     assert world.rti.kind_options == [3]
 
 
-def test_get_interventions_report_service_and_access(world):
+def test_get_existing_intervention_points_report_service_and_access(world):
     # arrange
     dap = Service("InService")
     dap.InputType = 1
@@ -475,10 +486,10 @@ def test_get_interventions_report_service_and_access(world):
     ]
 
     # act
-    result = vc.get_vecu_configuration(sections=["rte_interventions"])
+    result = vc.get_vecu_configuration(sections=["existing_rte_intervention_points"])
 
     # assert
-    assert [(e["service"], e["access"]) for e in result["rte_interventions"]] == [
+    assert [(e["service"], e["access"]) for e in result["existing_rte_intervention_points"]] == [
         ("InService", "dap"), ("OutService", "rte_service_port"), (None, None)]
 
 
@@ -787,6 +798,7 @@ def test_interventions_default_creates_a_service_for_each_point(world):
     assert len(services["Ctrl_RpIn_InputService"].points) == 1
     assert len(services["Ctrl_RpIn_InputService1"].points) == 1
     assert len(world.rti.possible) == 2
+    assert world.rti.delayed_mode_calls == ["enter", "exit"]
 
 
 def test_interventions_rte_service_port_access(world):
@@ -897,6 +909,7 @@ def test_interventions_unknown_point_rejected_without_changes(world, component, 
     assert f"{component}/{port}/Value" in result["message"]
     assert world.rti.existing == []
     assert world.rti.InterventionEnableCodeGeneration is False
+    assert world.rti.delayed_mode_calls == ["enter", "exit"]
 
 
 def test_interventions_duplicate_points_rejected(world):
@@ -941,6 +954,7 @@ def test_interventions_empty_list_only_sets_enable(world):
     assert len(world.rti.possible) == 1
     assert world.rti.InterventionServices.Elements == []
     assert unmapped.service is None
+    assert world.rti.kind_options == []
 
 
 @pytest.mark.parametrize(

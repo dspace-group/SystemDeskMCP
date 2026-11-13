@@ -1,12 +1,10 @@
 """V-ECU resolution and creation tools."""
-# pylint: disable=protected-access
 
 import json
 from typing import Annotated, Any, Literal, Optional
 
 from pydantic import Field
 
-from systemdesk_mcp import runtime
 from systemdesk_mcp.common import (
     AutosarElementPath,
     AutosarShortName,
@@ -17,8 +15,8 @@ from systemdesk_mcp.common import (
     success_response,
 )
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.runtime import get_app, logged, on_com_thread
-from systemdesk_mcp.tools.autosar import _resolve_component
+from systemdesk_mcp.runtime import get_active_project, get_app, logged, on_com_thread
+from systemdesk_mcp.tools.autosar import resolve_component
 
 _FALLBACK_COMPONENT_TYPES = (
     "COMPOSITION-SW-COMPONENT-TYPE",
@@ -30,7 +28,7 @@ _FALLBACK_COMPONENT_TYPES = (
 def _find_sw_component(active_project, component_path):
     """Return the SW component at component_path, else the first one of the fallback types."""
     if component_path:
-        return _resolve_component(active_project, component_path)
+        return resolve_component(active_project, component_path)
 
     for type_name in _FALLBACK_COMPONENT_TYPES:
         components = active_project.FindChildElements(type_name)
@@ -42,31 +40,21 @@ def _find_sw_component(active_project, component_path):
         error_code=ErrorCode.AUTOSAR_ELEMENT_NOT_FOUND)
 
 
-def _get_active_project():
-    active_project = get_app().ActiveProject
-    if active_project is None:
-        raise PermanentError(
-            "No project is currently open. Call create_project or open a project first.",
-            error_code=ErrorCode.NO_PROJECT_OPEN,
-        )
-    return active_project
-
-
 def _collect_vecu_creation_messages() -> list[dict[str, Any]]:
     """Collect recent SystemDesk message entries related to V-ECU creation failures."""
     app = get_app()
     collected: list[dict[str, Any]] = []
 
     for message in reversed(app.Messages.Elements):
-        error_messages = getattr(message, "ErrorMessages", None)
-        if error_messages is None or not getattr(error_messages, "Count", 0):
+        error_messages = message.ErrorMessages
+        if error_messages is None or error_messages.Count == 0:
             continue
 
         for index in range(error_messages.Count):
             item = error_messages.Elements[index]
             collected.append({
-                "MessageIdentifier": getattr(item, "MessageIdentifier", None),
-                "MessageText": getattr(item, "MessageText", None),
+                "MessageIdentifier": item.MessageIdentifier,
+                "MessageText": item.MessageText,
             })
 
         if collected:
@@ -80,7 +68,7 @@ def _collect_vecu_creation_messages() -> list[dict[str, Any]]:
 def _create_vecu_options(rswc_type, vecu_name, system_name, settings: dict[str, Any]):
     """Return fresh V-ECU creation options for rswc_type with the given settings applied."""
     v_ecu_options = rswc_type.GetNewCreateVEcuOptions()
-    if vecu_name is not None and getattr(v_ecu_options, "Ecu", None):
+    if vecu_name is not None and v_ecu_options.Ecu:
         prefix, _, _ = v_ecu_options.Ecu.rpartition("/")
         v_ecu_options.Ecu = prefix + "/" + vecu_name if prefix else vecu_name
     if system_name is not None:
@@ -105,10 +93,11 @@ def _find_vecu(active_project, vecu_name, reuse_existing_vecu):
 
 
 def _vecu_response(v_ecu_obj: Any) -> dict[str, Any]:
+    system = v_ecu_obj.System
     return {
-        "vecu_name": getattr(v_ecu_obj, "Name", None),
-        "system_path": getattr(getattr(v_ecu_obj, "System", None), "AUTOSARPathName", None),
-        "ecu_configuration": getattr(v_ecu_obj, "EcuConfiguration", None),
+        "vecu_name": v_ecu_obj.Name,
+        "system_path": system.AUTOSARPathName if system is not None else None,
+        "ecu_configuration": v_ecu_obj.EcuConfiguration,
     }
 
 
@@ -255,15 +244,14 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
     - permanent / UNEXPECTED_ERROR: V-ECU lookup or creation call failed
     """
     try:
-        active_project = _get_active_project()
+        active_project = get_active_project()
 
         v_ecu = _find_vecu(active_project, vecu_name, reuse_existing_vecu)
         if v_ecu is not None:
-            runtime._last_vecu = v_ecu
             return success_response({
                 **_vecu_response(v_ecu),
                 "created": False,
-                "message": f"Reusing existing V-ECU '{getattr(v_ecu, 'Name', None)}'.",
+                "message": f"Reusing existing V-ECU '{v_ecu.Name}'.",
             })
 
         rswc_type = _find_sw_component(active_project, component_path)
@@ -288,12 +276,10 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
                 details=json.dumps(collected, default=str) if collected else None,
             )
 
-        runtime._last_vecu = v_ecu
-
         return success_response({
             **_vecu_response(v_ecu),
             "created": True,
-            "component_path": getattr(rswc_type, "AUTOSARPathName", None),
+            "component_path": rswc_type.AUTOSARPathName,
             "message": "V-ECU created successfully.",
         })
 

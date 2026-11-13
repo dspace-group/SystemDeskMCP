@@ -1,6 +1,6 @@
 """V-ECU configuration tools: inspect the configuration, map runnables to OS tasks, configure RTE interventions."""
 
-from typing import Annotated, Any, Literal, Optional
+from typing import Annotated, Any, Literal, NamedTuple, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,18 +16,22 @@ from systemdesk_mcp.common import (
 from systemdesk_mcp.mcp_app import mcp
 from systemdesk_mcp.runtime import get_app, get_vecu, logged, on_com_thread
 
-Section = Literal["runnables", "os_tasks", "rte_intervention_points", "rte_interventions"]
-ALL_SECTIONS: tuple[Section, ...] = ("runnables", "os_tasks", "rte_intervention_points", "rte_interventions")
+Section = Literal["runnables", "os_tasks", "possible_rte_intervention_points", "existing_rte_intervention_points"]
+ALL_SECTIONS: tuple[Section, ...] = (
+    "runnables", "os_tasks", "possible_rte_intervention_points", "existing_rte_intervention_points",
+)
 Access = Literal["dap", "rte_service_port"]
 
 # SystemDesk enum values (dSPACE.SystemDesk.Components.AutomationFacade.RteInterventions).
-_KIND_OPTION_READ_AND_WRITE_ONLY = 3
-_POINT_KIND_READ = 0
-_SERVICE_TYPE_BY_ACCESS = {"dap": 1, "rte_service_port": 2}
-_ACCESS_BY_SERVICE_TYPE = {value: key for key, value in _SERVICE_TYPE_BY_ACCESS.items()}
+_KIND_OPTION_READ_AND_WRITE_ONLY = 3  # InterventionPointKindOption
+_POINT_KIND_READ = 0  # InterventionPointKind
+_SERVICE_TYPE_BY_ACCESS = {"dap": 1, "rte_service_port": 2}  # InterventionServiceType
+_ACCESS_BY_SERVICE_TYPE = {value: key for key, value in _SERVICE_TYPE_BY_ACCESS.items()}  # InterventionServiceType
 
 _UPDATE_RTE_CONFIGURATION = "Update Rte Configuration"
 _SERVICE_COMPONENT_TYPE = "SERVICE-SW-COMPONENT-TYPE"
+# Only atomic SW component types have internal behaviors.
+_COMPONENT_TYPES_WITHOUT_INTERNAL_BEHAVIORS = ("COMPOSITION-SW-COMPONENT-TYPE", "PARAMETER-SW-COMPONENT-TYPE")
 _MIN_PERIOD_MS = 0.0001
 _MAX_PERIOD_MS = 3_600_000
 _MAX_PRIORITY = 2**31 - 1
@@ -105,11 +109,11 @@ def _flat_view_components(ecu_configuration) -> list[Any]:
 
 
 def _rte_events(component) -> list[Any]:
-    internal_behaviors = getattr(component.TypeTref, "InternalBehaviors", None)
-    if internal_behaviors is None:
+    component_type = component.TypeTref
+    if component_type.AutosarType in _COMPONENT_TYPES_WITHOUT_INTERNAL_BEHAVIORS:
         return []
     events = []
-    for behavior in internal_behaviors.Elements:
+    for behavior in component_type.InternalBehaviors.Elements:
         events.extend(behavior.Events.Elements)
     return events
 
@@ -133,8 +137,17 @@ def _event_mapping(rte_configuration, component_name: str, event_name: str):
     return instance.RteEventToTaskMappings.Item(event_name)
 
 
-def _point_key(point) -> Optional[tuple[str, str, str, int]]:
-    """Return (component, port, data_element, kind) of a port data element intervention point, else None.
+class InterventionPointId(NamedTuple):
+    """Identifies a port data element intervention point."""
+
+    component: str  # short name of the SW component prototype
+    port: str  # short name of the port prototype
+    data_element: str  # short name of the data element
+    kind: int  # InterventionPointKind (read or write)
+
+
+def _intervention_point_id(point) -> Optional[InterventionPointId]:
+    """Return the InterventionPointId of a port data element intervention point, else None.
 
     Points of inter-runnable variables (no port) and of service components (e.g. Rte, EcuM) are skipped.
     """
@@ -149,7 +162,7 @@ def _point_key(point) -> Optional[tuple[str, str, str, int]]:
         return None
     if component.TypeTref.AutosarType == _SERVICE_COMPONENT_TYPE:
         return None
-    return component.ShortName, port.ShortName, data_element.ShortName, point.Kind
+    return InterventionPointId(component.ShortName, port.ShortName, data_element.ShortName, point.Kind)
 
 
 def _access_of(point, service) -> Optional[str]:
@@ -192,17 +205,17 @@ def _os_tasks_section(ecu_configuration) -> list[dict[str, Any]]:
     ]
 
 
-def _intervention_points_section(ecu_configuration) -> list[dict[str, Any]]:
+def _possible_intervention_points_section(ecu_configuration) -> list[dict[str, Any]]:
     possible = ecu_configuration.RteInterventions.GetPossibleInterventionPoints(_KIND_OPTION_READ_AND_WRITE_ONLY)
     keys = []
     for point in possible:
-        key = _point_key(point)
+        key = _intervention_point_id(point)
         if key is not None and key[:3] not in keys:
             keys.append(key[:3])
     return [{"component": c, "port": p, "data_element": d} for c, p, d in keys]
 
 
-def _interventions_section(ecu_configuration) -> list[dict[str, Any]]:
+def _existing_intervention_points_section(ecu_configuration) -> list[dict[str, Any]]:
     entries = []
     for point in ecu_configuration.RteInterventions.GetInterventionPoints():
         service = point.GetInterventionService()
@@ -217,8 +230,8 @@ def _interventions_section(ecu_configuration) -> list[dict[str, Any]]:
 _SECTION_READERS = {
     "runnables": _runnables_section,
     "os_tasks": _os_tasks_section,
-    "rte_intervention_points": _intervention_points_section,
-    "rte_interventions": _interventions_section,
+    "possible_rte_intervention_points": _possible_intervention_points_section,
+    "existing_rte_intervention_points": _existing_intervention_points_section,
 }
 
 
@@ -239,8 +252,8 @@ def get_vecu_configuration(
     sections: Annotated[Optional[list[Section]], Field(
         min_length=1,
         description=(
-            "Parts of the configuration to return: 'runnables', 'os_tasks', 'rte_intervention_points', "
-            "'rte_interventions'. Defaults to all. Example: ['runnables', 'os_tasks']"
+            "Parts of the configuration to return: 'runnables', 'os_tasks', 'possible_rte_intervention_points', "
+            "'existing_rte_intervention_points'. Defaults to all. Example: ['runnables', 'os_tasks']"
         ),
     )] = None,
     timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
@@ -258,9 +271,9 @@ def get_vecu_configuration(
       period_ms is set for timing events only. mapped_task and position are null if the event is not
       mapped yet; position is the execution order inside the task. Timing and init events must be mapped.
     - os_tasks: list of {name, period_ms, priority}; period_ms is null for non-cyclic tasks.
-    - rte_intervention_points: port data elements of SW components (not of service components such as
+    - possible_rte_intervention_points: port data elements of SW components (not of service components such as
       Rte or EcuM) where RTE interventions can still be added, as list of {component, port, data_element}.
-    - rte_interventions: existing intervention points as list of {point, service, access};
+    - existing_rte_intervention_points: existing intervention points as list of {point, service, access};
       access is 'dap', 'rte_service_port' or null if the point is not mapped to a service.
 
     Preconditions: start_systemdesk must be called first; a project with a V-ECU must be open.
@@ -570,13 +583,11 @@ def configure_runnable_mapping(  # pylint: disable=too-many-locals
 # configure_rte_interventions
 # --------------------------------------------------------------------------------------------------
 
-PointKey = tuple[str, str, str, int]
 
-
-def _unique_service_name(key: PointKey, existing_names: set[str]) -> str:
+def _unique_service_name(key: InterventionPointId, existing_names: set[str]) -> str:
     """Return the service name of key, with the lowest numeric suffix (1, 2, ...) not in existing_names."""
-    direction = "Input" if key[3] == _POINT_KIND_READ else "Output"
-    base_name = f"{key[0]}_{key[1]}_{direction}Service"
+    direction = "Input" if key.kind == _POINT_KIND_READ else "Output"
+    base_name = f"{key.component}_{key.port}_{direction}Service"
     name = base_name
     suffix = 0
     while name in existing_names:
@@ -585,17 +596,17 @@ def _unique_service_name(key: PointKey, existing_names: set[str]) -> str:
     return name
 
 
-def _collect_intervention_points(rte_interventions) -> tuple[dict[PointKey, list[Any]], dict[PointKey, list[Any]], set]:
+def _collect_intervention_points(rte_interventions) -> tuple[dict[InterventionPointId, list[Any]], dict[InterventionPointId, list[Any]], set]:
     """Return possible points and unmapped existing points by key, and the targets of existing points."""
-    possible: dict[PointKey, list[Any]] = {}
+    possible: dict[InterventionPointId, list[Any]] = {}
     for point in rte_interventions.GetPossibleInterventionPoints(_KIND_OPTION_READ_AND_WRITE_ONLY):
-        key = _point_key(point)
+        key = _intervention_point_id(point)
         if key is not None:
             possible.setdefault(key, []).append(point)
-    unmapped: dict[PointKey, list[Any]] = {}
+    unmapped: dict[InterventionPointId, list[Any]] = {}
     existing_targets = set()
     for point in rte_interventions.GetInterventionPoints():
-        key = _point_key(point)
+        key = _intervention_point_id(point)
         if key is None:
             continue
         existing_targets.add(key[:3])
@@ -621,14 +632,14 @@ def _select_intervention_points(intervention_points, possible, unmapped, existin
     return {key for key in set(possible) | set(unmapped) if key[:3] in requested}
 
 
-def _map_points_to_service(rte_interventions, key: PointKey, points: list[Any], access: str) -> list[str]:
+def _map_points_to_service(rte_interventions, key: InterventionPointId, points: list[Any], access: str) -> list[str]:
     """Map each point to its own newly created service of key; return the names of the created services."""
     existing_names = {service.ShortName for service in rte_interventions.InterventionServices.Elements}
     created: list[str] = []
     for point in points:
         name = _unique_service_name(key, existing_names)
         service = rte_interventions.InterventionServices.AddNew(name)
-        if key[3] == _POINT_KIND_READ:
+        if key.kind == _POINT_KIND_READ:
             service.InputType = _SERVICE_TYPE_BY_ACCESS[access]
         else:
             service.OutputType = _SERVICE_TYPE_BY_ACCESS[access]
@@ -655,7 +666,7 @@ def configure_rte_interventions(  # pylint: disable=too-many-locals
     intervention_points: Annotated[Optional[list[InterventionPointSpec]], Field(
         description=(
             "Port data elements to create RTE intervention points for. Omitted or null: all possible points, "
-            "as listed by get_vecu_configuration (rte_intervention_points). Empty list []: no points or "
+            "as listed by get_vecu_configuration (possible_rte_intervention_points). Empty list []: no points or "
             "services are created, e.g. to only set enable. "
             "Example: [{'component': 'FuelsysController', 'port': 'RpCorrectedSensors', 'data_element': 'Sensors'}]"
         ),
@@ -696,7 +707,7 @@ def configure_rte_interventions(  # pylint: disable=too-many-locals
     Existing intervention points and services are kept; already existing points are not created
     again, so repeating the call with the same arguments creates nothing new. The access of existing
     intervention services is never changed: access only applies to newly created points and to
-    existing points without a service. Use get_vecu_configuration (rte_interventions) to check the
+    existing points without a service. Use get_vecu_configuration (existing_rte_intervention_points) to check the
     access of existing points.
     Pass intervention_points=[] to create no points or services.
     Sets the V-ECU's RTE intervention code generation switch to enable (default true). enable does
@@ -725,21 +736,28 @@ def configure_rte_interventions(  # pylint: disable=too-many-locals
         v_ecu = get_vecu(vecu_name)
         rte_interventions = v_ecu.EcuConfiguration.RteInterventions
 
-        possible, unmapped, existing_targets = _collect_intervention_points(rte_interventions)
-        selected = _select_intervention_points(intervention_points, possible, unmapped, existing_targets)
-
         points_created: list[str] = []
         services_created: list[str] = []
-        for key in sorted(selected):
-            points = list(unmapped.get(key, []))
-            if key in possible:
-                created = list(rte_interventions.CreateInterventionPoints(possible[key]))
-                points.extend(created)
-                points_created.extend(p.ShortName for p in created)
-            if points:
-                services_created.extend(_map_points_to_service(rte_interventions, key, points, access))
+        try:
+            # Delayed mode batches the changes, which greatly reduces the runtime for many points and services.
+            rte_interventions.EnterDelayedMode()
+            # An empty list selects no points, so skip reading all intervention points from SystemDesk.
+            if intervention_points != []:
+                possible, unmapped, existing_targets = _collect_intervention_points(rte_interventions)
+                selected = _select_intervention_points(intervention_points, possible, unmapped, existing_targets)
 
-        rte_interventions.InterventionEnableCodeGeneration = enable
+                for key in sorted(selected):
+                    points = list(unmapped.get(key, []))
+                    if key in possible:
+                        created = list(rte_interventions.CreateInterventionPoints(possible[key]))
+                        points.extend(created)
+                        points_created.extend(p.ShortName for p in created)
+                    if points:
+                        services_created.extend(_map_points_to_service(rte_interventions, key, points, access))
+
+            rte_interventions.InterventionEnableCodeGeneration = enable
+        finally:
+            rte_interventions.ExitDelayedMode()
 
         return success_response({
             "vecu_name": v_ecu.Name,

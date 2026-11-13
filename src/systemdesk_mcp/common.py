@@ -70,10 +70,10 @@ ARXML_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*\.[aA][rR][xX][mM][lL]$"
 SDP_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*\.[sS][dD][pP]$"
 FILE_NAME_PATTERN = r'^[^<>:"/\\|?*\x00-\x1F]+$'
 
-AUTOSAR_ELEMENT_PATH_PATTERN = r"^(/[a-zA-Z][a-zA-Z0-9_]{0,127}){2,}$"
-AutosarElementPath = Annotated[str, Field(pattern=AUTOSAR_ELEMENT_PATH_PATTERN)]
 AUTOSAR_SHORT_NAME_PATTERN = r"^[a-zA-Z][a-zA-Z0-9_]{0,127}$"
 AutosarShortName = Annotated[str, Field(pattern=AUTOSAR_SHORT_NAME_PATTERN)]
+AUTOSAR_ELEMENT_PATH_PATTERN = r"^(/" + AUTOSAR_SHORT_NAME_PATTERN[1:-1] + r"){2,}$"
+AutosarElementPath = Annotated[str, Field(pattern=AUTOSAR_ELEMENT_PATH_PATTERN)]
 
 VecuNameParam = Annotated[Optional[AutosarShortName], Field(
     description=(

@@ -19,8 +19,8 @@ from systemdesk_mcp.runtime import get_active_project, get_app, get_vecu, logged
 
 _BSW_GENERATION_NAME = "V-ECU Implementation"
 
-# Errors SystemDesk reports during every FMU export that do not prevent a usable FMU.
-_EXPECTED_FMU_EXPORT_ERRORS = {
+# Generic errors SystemDesk reports on every failed FMU export.
+_GENERIC_FMU_EXPORT_ERRORS = {
     "Error(102,110,5)",
     "Error(95,1140,108)",
     "Error(95,1140,151)",
@@ -87,8 +87,8 @@ def generate_vecu_bsw(
             error_type="permanent",
             error_code=ErrorCode.SYSTEMDESK_OPERATION_FAILED,
             details="\n".join(
-                str(error_messages.Elements[index].MessageText)
-                for index in range(error_messages.Count)
+                str(message.MessageText)
+                for message in error_messages.Elements
             ),
         )
 
@@ -181,8 +181,8 @@ def export_vecu_fmu(
 
         build_result = export_settings.Result
         if build_result.AnyError:
-            unexpected_errors = _collect_unexpected_fmu_export_errors(build_result)
-            if unexpected_errors:
+            specific_errors = _collect_specific_fmu_export_errors(build_result)
+            if specific_errors:
                 return error_response(
                     f"V-ECU FMU export failed for '{fmu_file}'. "
                     "Fix the reported errors and try again.",
@@ -190,7 +190,7 @@ def export_vecu_fmu(
                     error_code=ErrorCode.SYSTEMDESK_OPERATION_FAILED,
                     details="\n".join(
                         f"{item.MessageIdentifier}: {item.MessageText}"
-                        for item in unexpected_errors
+                        for item in specific_errors
                     ),
                 )
             return error_response(
@@ -218,17 +218,17 @@ def export_vecu_fmu(
         )
 
 
-def _collect_unexpected_fmu_export_errors(build_result) -> list[Any]:
-    """Return the error messages (incl. children) that are not in the expected set."""
-    unexpected_errors = []
+def _collect_specific_fmu_export_errors(build_result) -> list[Any]:
+    """Return the error messages (incl. children) that are not generic FMU export errors."""
+    specific_errors = []
     for error in build_result.Elements:
         if error.Severity != "Error":
             continue
-        if error.MessageIdentifier in _EXPECTED_FMU_EXPORT_ERRORS:
+        if error.MessageIdentifier in _GENERIC_FMU_EXPORT_ERRORS:
             continue
-        unexpected_errors.append(error)
-        unexpected_errors.extend(error.Children.Elements)
-    return unexpected_errors
+        specific_errors.append(error)
+        specific_errors.extend(error.Children.Elements)
+    return specific_errors
 
 
 def _get_fmu_export_log_location() -> str:
