@@ -95,7 +95,7 @@ uv run pytest --cov=systemdesk_mcp
 ```
 
 For end-to-end smoke tests against an existing SystemDesk installation, use the
-smoke test skills (`smoke-test-*`) in [.github/skills/](.github/skills/).
+[smoke-test-all skill](.github/skills/smoke-test-all/SKILL.md), which runs all `smoke-test-*` skills.
 
 ## Available MCP Tools
 
