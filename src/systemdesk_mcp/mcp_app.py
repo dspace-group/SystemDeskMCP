@@ -12,6 +12,8 @@ mcp = FastMCP(
         "Call close_systemdesk only when SystemDesk should quit; "
         "the COM connection may stay open otherwise. "
         "AUTOSAR files must use the .arxml extension. "
+        "Call get_vecu_configuration before configure_runnable_mapping or configure_rte_interventions "
+        "to discover valid runnable, task, and intervention-point names. "
         "All tools return a JSON dictionary with a 'status' field ('success' or 'error'). "
         "On error, 'error_type' is either 'permanent' (do not retry, halt or escalate) "
         "or 'transient' (retryable with backoff), and 'error_code' is a stable "
