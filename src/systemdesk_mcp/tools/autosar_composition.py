@@ -124,6 +124,7 @@ class PortConnectionStrategy(str, Enum):
     PORT_NAME = "port_name"
     INTERFACE_NAME = "interface_name"
     INTERFACE_TYPE = "interface_type"
+    COMBINED = "combined"
 
 
 class InterfaceMatchStrategy(str, Enum):
@@ -138,7 +139,7 @@ _MAX_EXPRESSION_LENGTH = 256
 
 
 @mcp.tool(
-    title="Connect Composition Ports By Interface",
+    title="Connect Composition Ports",
     annotations={
         "readOnlyHint": False,
         "destructiveHint": False,
@@ -149,14 +150,31 @@ _MAX_EXPRESSION_LENGTH = 256
 )
 @logged
 @on_com_thread
-def connect_composition_ports_by_interface(
+def connect_composition_ports(  # pylint: disable=too-many-arguments
     composition_path: Annotated[AutosarElementPath, Field(
         description="Absolute AUTOSAR path of an existing composition. Example: '/SWA/Top'",
     )],
-    strategy: Annotated[InterfaceMatchStrategy, Field(
-        description="Interface matching strategy; defaults to interface_type. Options: interface_name, interface_type. Example: 'interface_name'",
-    )] = InterfaceMatchStrategy.INTERFACE_TYPE,
+    strategy: Annotated[PortConnectionStrategy, Field(
+        description="Matching strategy: interface_type (default), interface_name, port_name, or combined (name first, then interface). Example: 'combined'.",
+    )] = PortConnectionStrategy.INTERFACE_TYPE,
     *,
+    source_expression: Annotated[str | None, Field(
+        min_length=1, max_length=_MAX_EXPRESSION_LENGTH,
+        description=(
+            "Provided-port name pattern; required for port_name and combined, otherwise omit. "
+            "Macros: <SWC>, <Interface>, <equal>. Example: 'P_<equal>'."
+        ),
+    )] = None,
+    target_expression: Annotated[str | None, Field(
+        min_length=1, max_length=_MAX_EXPRESSION_LENGTH,
+        description=(
+            "Required-port name pattern; required for port_name and combined, otherwise omit. "
+            "Macros: <SWC>, <Interface>, <equal>. Example: 'R_<equal>'."
+        ),
+    )] = None,
+    interface_strategy: Annotated[InterfaceMatchStrategy | None, Field(
+        description="Only for combined: interface_type (default) or interface_name for the second pass; otherwise omit. Example: 'interface_name'.",
+    )] = None,
     single_connections_only: Annotated[bool, Field(
         description=(
             "True restricts matching to ports with exactly one possible connection; "
@@ -167,18 +185,30 @@ def connect_composition_ports_by_interface(
         description="Maximum seconds to wait; timed-out work continues. Example: 60",
     )] = 60,
 ) -> dict[str, Any]:
-    """Connect open ports by interface using SystemDesk's ConnectPortsOfComposition matcher.
+    """Connect existing open ports using SystemDesk's ConnectPortsOfComposition matcher.
 
     Preconditions: start_systemdesk must be called first; a project must be open.
     Connects inner component ports and existing composition boundary ports using
-    assembly and delegation connectors. Use connect_composition_ports_by_port_name
-    for port-name matching with expressions.
-    Strategy defaults to interface_type, using all interfaces.
+    assembly and delegation connectors. Strategy defaults to interface_type.
+    port_name requires source_expression and target_expression; interface strategies
+    accept neither expression. combined requires both expressions and runs port_name
+    first, then interface_strategy (default interface_type) on remaining open ports.
+    This is sequential matching, not a requirement that both strategies agree.
+    interface_strategy is accepted only for combined. All arguments are checked
+    before either pass mutates the model. All interfaces are used.
+    Expressions are SystemDesk common name patterns (regular expressions), with
+    <SWC>, <Interface>, and <equal> macros passed through unchanged. Syntax is not
+    validated: malformed or non-matching patterns can succeed with zero connections.
     Set single_connections_only=False to allow multiple connections per port,
     subject to SystemDesk's interface and connection rules.
     New port creation, closed-loop
     connections and connections without interfaces are disabled.
     Returns path, connection_count and connections (path/type), alongside status.
+    combined also returns passes, each with strategy and its result. On failure,
+    stops without retrying or rolling back; completed passes and their known
+    connections are included, but the failed pass may have made unreported changes.
+    The timeout covers the entire operation; timed-out work, including subsequent
+    passes, continues on the COM worker.
     No matches is success. Does not save, validate, retry, or roll back the model.
     Repeating a successful call with the same inputs and an unchanged model
     connects no additional ports and returns connection_count=0.
@@ -195,11 +225,45 @@ def connect_composition_ports_by_interface(
     - permanent / AUTOSAR_ELEMENT_NOT_FOUND: composition path does not exist
     - permanent / AMBIGUOUS_AUTOSAR_PATH: path identifies multiple elements
     - permanent / INVALID_AUTOSAR_ELEMENT_TYPE: element is not a composition
-    - permanent / INVALID_PORT_CONNECTOR_CONFIGURATION: unsupported strategy
+    - permanent / INVALID_PORT_CONNECTOR_CONFIGURATION: unsupported strategy or invalid argument combination
     - transient / TIMEOUT: wait timed out; operation continues
     - permanent / UNEXPECTED_ERROR: configuration, matching, or result readback failed
     """
-    return _connect_ports(composition_path, strategy, None, None, single_connections_only)
+    selected_interface = InterfaceMatchStrategy.INTERFACE_TYPE if interface_strategy is None else interface_strategy
+    try:
+        get_active_project()
+        if strategy == PortConnectionStrategy.COMBINED:
+            _check_port_connection_arguments(PortConnectionStrategy.PORT_NAME, source_expression, target_expression)
+            _check_port_connection_arguments(selected_interface, None, None)
+        else:
+            _check_port_connection_arguments(strategy, source_expression, target_expression)
+            if interface_strategy is not None:
+                raise PermanentError(
+                    "interface_strategy is accepted only for combined matching.",
+                    error_code=ErrorCode.INVALID_PORT_CONNECTOR_CONFIGURATION,
+                )
+    except PermanentError as exc:
+        return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
+
+    if strategy != PortConnectionStrategy.COMBINED:
+        return _connect_ports(composition_path, strategy, source_expression, target_expression, single_connections_only)
+
+    passes = []
+    connections = []
+    for pass_strategy, source, target in (
+        (PortConnectionStrategy.PORT_NAME, source_expression, target_expression),
+        (selected_interface, None, None),
+    ):
+        result = _connect_ports(composition_path, pass_strategy, source, target, single_connections_only)
+        passes.append({"strategy": pass_strategy, **result})
+        if result["status"] == "error":
+            return {**result, "path": composition_path, "connection_count": len(connections),
+                    "connections": connections, "passes": passes}
+        connections.extend(result["connections"])
+    return success_response({
+        "path": result["path"], "connection_count": len(connections),
+        "connections": connections, "passes": passes,
+    })
 
 
 def _connect_ports(composition_path, strategy, source_expression, target_expression, single_connections_only):
@@ -256,94 +320,6 @@ def _connect_ports(composition_path, strategy, source_expression, target_express
             message, error_type="permanent", error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
-
-
-@mcp.tool(
-    title="Connect Composition Ports By Port Name",
-    annotations={
-        "readOnlyHint": False,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
-    output_schema=None,
-)
-@logged
-@on_com_thread
-def connect_composition_ports_by_port_name(
-    composition_path: Annotated[AutosarElementPath, Field(
-        description="Absolute AUTOSAR path of an existing composition. Example: '/SWA/Top'",
-    )],
-    source_expression: Annotated[str, Field(
-        min_length=1,
-        max_length=_MAX_EXPRESSION_LENGTH,
-        description=(
-            "Regular expression for provided-port names, applied as SystemDesk's common name pattern. "
-            "Macros pass through unchanged: <SWC> (software component type name), "
-            "<Interface> (interface name), <equal>. 1-256 characters, syntax not validated. "
-            "Example: 'P_<equal>'"
-        ),
-    )],
-    target_expression: Annotated[str, Field(
-        min_length=1,
-        max_length=_MAX_EXPRESSION_LENGTH,
-        description=(
-            "Regular expression for required-port names, applied as SystemDesk's common name pattern. "
-            "Macros pass through unchanged: <SWC> (software component type name), "
-            "<Interface> (interface name), <equal>. 1-256 characters, syntax not validated. "
-            "Example: 'R_<equal>'"
-        ),
-    )],
-    *,
-    single_connections_only: Annotated[bool, Field(
-        description=(
-            "True restricts matching to ports with exactly one possible connection; "
-            "False allows multiple connections per port, subject to SystemDesk rules. Example: False"
-        ),
-    )] = True,
-    timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument
-        description="Maximum seconds to wait; timed-out work continues. Example: 60",
-    )] = 60,
-) -> dict[str, Any]:
-    """Connect open ports by port name using SystemDesk's ConnectPortsOfComposition matcher.
-
-    Preconditions: start_systemdesk must be called first; a project must be open.
-    Connects inner component ports and existing composition boundary ports using
-    assembly and delegation connectors, matching provided and required port names
-    with both expressions. Use connect_composition_ports_by_interface for interface matching.
-    Expressions are regular expressions for the provided and required port names,
-    applied as SystemDesk's common name pattern. Macros pass through unchanged:
-    <SWC> (software component type name), <Interface> (interface name), <equal>.
-    SystemDesk does not report malformed or non-matching expressions: they create no
-    connections and the call succeeds with connection_count=0, so check the count
-    and the expressions before assuming ports were connected.
-    The only rejected expressions are empty, longer than 256 characters, or not strings.
-    Set single_connections_only=False to allow multiple connections per port,
-    subject to SystemDesk's interface and connection rules.
-    New port creation, closed-loop connections and connections without interfaces
-    are disabled.
-    Returns path, connection_count and connections (path/type), alongside status.
-    No matches is success. Does not save, validate, retry, or roll back the model.
-    Repeating a successful call with the same inputs and an unchanged model
-    connects no additional ports and returns connection_count=0.
-    On mutation/readback failure the model may have changed.
-    After TIMEOUT, call get_systemdesk_status and wait for its response before
-    inspecting the model or retrying; the response confirms completion, not success.
-
-    Failure codes (error_type / error_code: condition):
-    - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
-    - permanent / NO_PROJECT_OPEN: no project currently open
-    - permanent / AUTOSAR_ELEMENT_NOT_FOUND: composition path does not exist
-    - permanent / AMBIGUOUS_AUTOSAR_PATH: path identifies multiple elements
-    - permanent / INVALID_AUTOSAR_ELEMENT_TYPE: element is not a composition
-    - permanent / INVALID_PORT_CONNECTOR_CONFIGURATION: expression is empty, too long, or not a string
-    - transient / TIMEOUT: wait timed out; operation continues
-    - permanent / UNEXPECTED_ERROR: configuration, matching, or result readback failed
-    """
-    return _connect_ports(
-        composition_path, PortConnectionStrategy.PORT_NAME,
-        source_expression, target_expression, single_connections_only,
-    )
 
 
 def _check_port_connection_arguments(strategy, source_expression, target_expression):
