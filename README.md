@@ -56,9 +56,10 @@ Recommended flow:
 2. `create_project(project_path, project_name)` or `open_project(project_file, timeout=60)`
 3. `import_autosar_file(file_path, timeout=60)`
 4. `create_composition(composition_path, component_paths)` (optional)
-5. `validate_autosar(output_format="markdown" | "json", timeout=120)`
-6. `close_project(save_project=True)` (optional, only to close the project)
-7. `close_systemdesk(save_project=True)` (optional, only to quit SystemDesk)
+5. `connect_composition_ports(composition_path, ...)` (optional; defaults to interface matching)
+6. `validate_autosar(output_format="markdown" | "json", timeout=120)`
+7. `close_project(save_project=True)` (optional, only to close the project)
+8. `close_systemdesk(save_project=True)` (optional, only to quit SystemDesk)
 
 Important:
 
@@ -99,6 +100,7 @@ For an end-to-end smoke test against an existing SystemDesk installation, use th
 - `close_project(save_project=True)`
 - `import_autosar_file(file_path, timeout=60)`
 - `create_composition(composition_path, component_paths)`
+- `connect_composition_ports(composition_path, strategy="interface_type" | "interface_name" | "port_name" | "combined", source_expression=None, target_expression=None, interface_strategy=None, single_connections_only=True, timeout=60)`
 - `validate_autosar(output_format="markdown" | "json", timeout=120)`
 
 ## Extending the Server

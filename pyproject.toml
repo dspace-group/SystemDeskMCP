@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "jsonschema>=4.26,<5",
     "packaging>=24",
     "pylint>=4.0.7,<5",
     "pytest>=9.1.1,<10",
