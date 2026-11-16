@@ -159,16 +159,21 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
     generate_dap_for_atomic_ports: Annotated[Optional[bool], Field(
         description=(
             "Automatically create data access points (DAPs) for the unconnected atomic port interface "
-            "elements of the V-ECU, so all unconnected atomic ports can be accessed via RTE interventions "
-            "(see configure_rte_interventions). Ignored when an existing V-ECU is reused. Example: true"
+            "elements of the V-ECU. This creates RTE intervention points and services with 'dap' access "
+            "(see configure_rte_interventions). Set to false if the V-ECU must be created without RTE "
+            "interventions. Omit (null) to keep the default saved in SystemDesk, which may be enabled. "
+            "Ignored when an existing V-ECU is reused. Example: false"
         ),
     )] = None,
     generate_dap_for_root_composition_ports: Annotated[Optional[bool], Field(
         description=(
             "Automatically create data access points (DAPs) for the delegation ports of the root "
             "composition, so the external communication of the V-ECU (all unconnected ports of inner "
-            "compositions and the root composition) can be accessed via RTE interventions "
-            "(see configure_rte_interventions). Ignored when an existing V-ECU is reused. Example: true"
+            "compositions and the root composition) can be accessed via RTE interventions. This creates "
+            "RTE intervention points and services with 'dap' access (see configure_rte_interventions). "
+            "Set to false if the V-ECU must be created without RTE interventions. Omit (null) to keep "
+            "the default saved in SystemDesk, which may be enabled. "
+            "Ignored when an existing V-ECU is reused. Example: false"
         ),
     )] = None,
     create_runnable_mapping: Annotated[Optional[bool], Field(
