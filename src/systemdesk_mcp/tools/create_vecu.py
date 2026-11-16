@@ -79,6 +79,23 @@ def _create_vecu_options(rswc_type, vecu_name, system_name, settings: dict[str, 
     return v_ecu_options
 
 
+def _read_new_vecu_options(v_ecu_options) -> dict[str, Any]:
+    """Return the options SystemDesk uses to create the new V-ECU, keyed by tool parameter name.
+
+    Includes the defaults saved in SystemDesk for the options the caller did not set.
+    """
+    return {
+        "predefined_ecu_configuration": v_ecu_options.PredefinedEcuConfiguration,
+        "generate_dap_for_atomic_ports": v_ecu_options.GenerateDapForAtomicPorts,
+        "generate_dap_for_root_composition_ports": v_ecu_options.GenerateDapForRootCompositionPorts,
+        "create_runnable_mapping": v_ecu_options.CreateRunnableMapping,
+        "rte_calibration_support": v_ecu_options.RteCalibrationSupport,
+        "rte_simulation_logging": v_ecu_options.RteSimulationLogging,
+        "rte_measurement_support": v_ecu_options.RteMeasurementSupport,
+        "auto_configure_and_generate": v_ecu_options.AutoConfigureAndGenerate,
+    }
+
+
 def _find_vecu(active_project, vecu_name, reuse_existing_vecu):
     """Return the V-ECU named vecu_name, else the first V-ECU if reuse is requested, or None."""
     if vecu_name:
@@ -227,7 +244,7 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
     rte_calibration_support, rte_simulation_logging, rte_measurement_support and
     auto_configure_and_generate. They are ignored when an existing V-ECU is reused, so a reused
     V-ECU is returned unchanged (no generation is run on it). Options left unset keep the
-    SystemDesk defaults.
+    defaults saved in SystemDesk; check creation_options in the response for the values used.
     Creation is additive: SystemDesk creates the V-ECU elements in a new package and never
     overwrites existing elements, even if system_name or vecu_name clash with existing names.
     Repeated calls: with vecu_name, later calls reuse the V-ECU created by the first call.
@@ -235,7 +252,9 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
 
     Preconditions: start_systemdesk must be called first; a project must be open.
     Returns the resolved V-ECU name, system path, ECU configuration, and whether it was newly created;
-    on creation also the component_path the V-ECU was created from.
+    on creation also the component_path the V-ECU was created from and creation_options, the
+    creation option values used (keyed by parameter name), including the defaults saved in
+    SystemDesk for options left unset.
 
     Failure codes (error_type / error_code: condition):
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
@@ -270,6 +289,7 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
             "RteMeasurementSupport": rte_measurement_support,
             "AutoConfigureAndGenerate": auto_configure_and_generate,
         })
+        new_vecu_options = _read_new_vecu_options(v_ecu_options)
 
         v_ecu = rswc_type.CreateVEcu(v_ecu_options)
         if v_ecu is None:
@@ -285,6 +305,7 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
             **_vecu_response(v_ecu),
             "created": True,
             "component_path": rswc_type.AUTOSARPathName,
+            "creation_options": new_vecu_options,
             "message": "V-ECU created successfully.",
         })
 

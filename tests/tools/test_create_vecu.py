@@ -13,13 +13,32 @@ from systemdesk_mcp import common, runtime
 from tests.helpers import validate_args
 
 
+_FMI3_CONFIGURATION = "Default ECU Configuration for V-ECU FMUs (FMI 3.0)"
+
+# Saved SystemDesk defaults; deliberately differ from the tool defaults.
+_SAVED_DEFAULT_OPTIONS = {
+    "Ecu": "/Ecus/DefaultEcu",
+    "PredefinedEcuConfiguration": "Default ECU Configuration for V-ECU FMUs (FMI 2.0)",
+    "GenerateDapForAtomicPorts": True,
+    "GenerateDapForRootCompositionPorts": True,
+    "CreateRunnableMapping": False,
+    "RteCalibrationSupport": "INITIALIZED_RAM",
+    "RteSimulationLogging": "SIMULATION",
+    "RteMeasurementSupport": True,
+    "AutoConfigureAndGenerate": True,
+}
+
+
+def _options(**values):
+    return SimpleNamespace(**{**_SAVED_DEFAULT_OPTIONS, **values})
+
+
 def _component(short_name, options=None, v_ecu=None, autosar_type="COMPOSITION-SW-COMPONENT-TYPE"):
     component = MagicMock()
     component.ShortName = short_name
     component.AUTOSARPathName = f"/SWA/{short_name}"
     component.AutosarType = autosar_type
-    component.GetNewCreateVEcuOptions.return_value = options if options is not None else SimpleNamespace(
-        Ecu="/Ecus/DefaultEcu")
+    component.GetNewCreateVEcuOptions.return_value = options if options is not None else _options()
     component.CreateVEcu.return_value = v_ecu
     return component
 
@@ -171,6 +190,7 @@ def test_get_or_create_vecu_reuse_ignores_creation_options(app):
     # assert
     assert result["status"] == "success"
     assert result["created"] is False
+    assert "creation_options" not in result
     app.ActiveProject.FindChildElements.assert_not_called()
     app.ActiveProject.GetElementsByARPath.assert_not_called()
 
@@ -178,7 +198,7 @@ def test_get_or_create_vecu_reuse_ignores_creation_options(app):
 def test_get_or_create_vecu_creates_vecu_with_defaults(app):
     # arrange
     _set_no_vecus(app)
-    options = SimpleNamespace(Ecu="/Ecus/DefaultEcu")
+    options = _options()
     v_ecu = _vecu("NewVEcu")
     composition = _component("RootComposition", options=options, v_ecu=v_ecu)
     _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
@@ -196,18 +216,41 @@ def test_get_or_create_vecu_creates_vecu_with_defaults(app):
     assert result["component_path"] == "/SWA/RootComposition"
     composition.CreateVEcu.assert_called_once_with(options)
     assert vars(options) == {
-        "Ecu": "/Ecus/DefaultEcu",
-        "PredefinedEcuConfiguration": "Default ECU Configuration for V-ECU FMUs (FMI 3.0)",
+        **_SAVED_DEFAULT_OPTIONS,
+        "PredefinedEcuConfiguration": _FMI3_CONFIGURATION,
         "CreateRunnableMapping": True,
         "AutoConfigureAndGenerate": False,
     }
     app.ActiveProject.FindChildElements.assert_called_once_with("COMPOSITION-SW-COMPONENT-TYPE")
 
 
+def test_get_or_create_vecu_reports_creation_options_with_saved_defaults(app):
+    # arrange
+    _set_no_vecus(app)
+    composition = _component("RootComposition", v_ecu=_vecu("NewVEcu"))
+    _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
+
+    # act
+    result = create_vecu.get_or_create_vecu(generate_dap_for_atomic_ports=False)
+
+    # assert
+    assert result["status"] == "success"
+    assert result["creation_options"] == {
+        "predefined_ecu_configuration": _FMI3_CONFIGURATION,
+        "generate_dap_for_atomic_ports": False,
+        "generate_dap_for_root_composition_ports": True,
+        "create_runnable_mapping": True,
+        "rte_calibration_support": "INITIALIZED_RAM",
+        "rte_simulation_logging": "SIMULATION",
+        "rte_measurement_support": True,
+        "auto_configure_and_generate": False,
+    }
+
+
 def test_get_or_create_vecu_creates_named_vecu_when_name_not_found(app):
     # arrange
     _set_no_vecus(app)
-    options = SimpleNamespace(Ecu="/Ecus/DefaultEcu")
+    options = _options()
     composition = _component("RootComposition", options=options, v_ecu=_vecu("NewVEcu"))
     _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
 
@@ -224,7 +267,7 @@ def test_get_or_create_vecu_creates_named_vecu_when_name_not_found(app):
 def test_get_or_create_vecu_applies_all_given_options(app):
     # arrange
     _set_no_vecus(app)
-    options = SimpleNamespace(Ecu="/Ecus/DefaultEcu")
+    options = _options()
     composition = _component("RootComposition", options=options, v_ecu=_vecu("NewVEcu"))
     _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
 
@@ -256,12 +299,22 @@ def test_get_or_create_vecu_applies_all_given_options(app):
         "RteMeasurementSupport": True,
         "AutoConfigureAndGenerate": True,
     }
+    assert result["creation_options"] == {
+        "predefined_ecu_configuration": "Default ECU Configuration for V-ECU FMUs with CAN Driver (FMI 2.0)",
+        "generate_dap_for_atomic_ports": True,
+        "generate_dap_for_root_composition_ports": False,
+        "create_runnable_mapping": True,
+        "rte_calibration_support": "OFFLINE",
+        "rte_simulation_logging": "SIMULATION",
+        "rte_measurement_support": True,
+        "auto_configure_and_generate": True,
+    }
 
 
 def test_get_or_create_vecu_vecu_name_without_ecu_prefix(app):
     # arrange
     _set_no_vecus(app)
-    options = SimpleNamespace(Ecu="DefaultEcu")
+    options = _options(Ecu="DefaultEcu")
     composition = _component("RootComposition", options=options, v_ecu=_vecu("NewVEcu"))
     _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
 
@@ -277,8 +330,8 @@ def test_get_or_create_vecu_creates_fresh_options_per_call(app):
     # arrange
     _set_no_vecus(app)
     composition = _component("RootComposition", v_ecu=_vecu("NewVEcu"))
-    first_options = SimpleNamespace()
-    second_options = SimpleNamespace()
+    first_options = _options()
+    second_options = _options()
     composition.GetNewCreateVEcuOptions.side_effect = [first_options, second_options]
     _set_components(app, {"COMPOSITION-SW-COMPONENT-TYPE": [composition]})
 
