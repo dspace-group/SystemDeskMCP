@@ -194,7 +194,7 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
             "Ignored when an existing V-ECU is reused. Example: false"
         ),
     )] = None,
-    create_runnable_mapping: Annotated[Optional[bool], Field(
+    create_runnable_mapping: Annotated[bool, Field(
         description=(
             "Create the runnable mapping of the new V-ECU. Defaults to true. "
             "Ignored when an existing V-ECU is reused. Example: true"

@@ -643,3 +643,8 @@ def test_timeout_out_of_range_rejected_by_schema(timeout):
 def test_get_or_create_vecu_invalid_literal_rejected_by_schema(arguments):
     with pytest.raises(ValidationError):
         validate_args(create_vecu.get_or_create_vecu, **arguments)
+
+
+def test_get_or_create_vecu_null_create_runnable_mapping_rejected_by_schema():
+    with pytest.raises(ValidationError):
+        validate_args(create_vecu.get_or_create_vecu, create_runnable_mapping=None)

@@ -58,7 +58,7 @@ Recommended flow:
 4. `create_composition(composition_path, component_paths)` (optional)
 5. `validate_autosar(output_format="markdown" | "json", timeout=120)`
 6. `get_or_create_vecu(vecu_name=None, reuse_existing_vecu=False, component_path=None, system_name=None, predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs (FMI 3.0)", auto_configure_and_generate=False, timeout=240)` (further optional V-ECU creation options are available)
-7. `get_vecu_configuration(vecu_name=None, include_runnables=True, include_os_tasks=True, include_possible_rte_intervention_points=True, include_existing_rte_intervention_points=True, timeout=120)` (optional; inspect runnable, task, and intervention-point names)
+7. `get_vecu_configuration(vecu_name=None, include=None, timeout=120)` (optional; inspect runnable, task, and intervention-point names; `include` selects the lists to return, e.g. `["runnables", "os_tasks"]`)
 8. `configure_runnable_mapping(tasks=None, mappings=None, vecu_name=None, timeout=240)` (optional; configure OS tasks and runnable schedules)
 9. `configure_rte_interventions(vecu_name=None, intervention_points=None, access="dap", enable=True, timeout=240)` (optional; create intervention points and services)
 10. `generate_vecu_bsw(vecu_name=None, timeout=240)` (pass the `vecu_name` returned by `get_or_create_vecu`; may be omitted if the project contains exactly one V-ECU)
@@ -107,7 +107,7 @@ smoke test skills (`smoke-test-*`) in [.github/skills/](.github/skills/).
 - `create_composition(composition_path, component_paths)`
 - `validate_autosar(output_format="markdown" | "json", timeout=120)`
 - `get_or_create_vecu(vecu_name=None, reuse_existing_vecu=False, component_path=None, system_name=None, predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs (FMI 3.0)", generate_dap_for_atomic_ports=None, generate_dap_for_root_composition_ports=None, create_runnable_mapping=True, rte_calibration_support=None, rte_simulation_logging=None, rte_measurement_support=None, auto_configure_and_generate=False, timeout=240)`
-- `get_vecu_configuration(vecu_name=None, include_runnables=True, include_os_tasks=True, include_possible_rte_intervention_points=True, include_existing_rte_intervention_points=True, timeout=120)`
+- `get_vecu_configuration(vecu_name=None, include=None, timeout=120)`
 - `configure_runnable_mapping(tasks=None, mappings=None, vecu_name=None, timeout=240)`
 - `configure_rte_interventions(vecu_name=None, intervention_points=None, access="dap", enable=True, timeout=240)`
 - `generate_vecu_bsw(vecu_name=None, timeout=240)`

@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any, Literal, NamedTuple, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from systemdesk_mcp.common import (
     AutosarShortName,
@@ -223,6 +223,12 @@ def _read_existing_rte_intervention_points(ecu_configuration) -> list[dict[str, 
     return entries
 
 
+def _reject_duplicates(values: list[str]) -> list[str]:
+    if len(values) != len(set(values)):
+        raise ValueError("Each list may only be given once.")
+    return values
+
+
 @mcp.tool(
     title="Get V-ECU Configuration",
     annotations={
@@ -235,20 +241,19 @@ def _read_existing_rte_intervention_points(ecu_configuration) -> list[dict[str, 
 )
 @logged
 @on_com_thread
-def get_vecu_configuration(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def get_vecu_configuration(
     vecu_name: VecuNameParam = None,
-    include_runnables: Annotated[bool, Field(
-        description="Return the runnables with their RTE events and task mapping. Example: true",
-    )] = True,
-    include_os_tasks: Annotated[bool, Field(
-        description="Return the OS tasks. Example: true",
-    )] = True,
-    include_possible_rte_intervention_points: Annotated[bool, Field(
-        description="Return the port data elements where RTE interventions can still be added. Example: false",
-    )] = True,
-    include_existing_rte_intervention_points: Annotated[bool, Field(
-        description="Return the existing RTE intervention points. Example: false",
-    )] = True,
+    include: Annotated[Optional[Annotated[list[Literal[
+        "runnables", "os_tasks", "possible_rte_intervention_points", "existing_rte_intervention_points",
+    ]], AfterValidator(_reject_duplicates), Field(json_schema_extra={"uniqueItems": True})]], Field(
+        min_length=1,
+        description=(
+            "Lists to return, at least one, each only once: 'runnables' (runnables with their RTE events and "
+            "task mapping), 'os_tasks' (OS tasks), 'possible_rte_intervention_points' (port data elements where "
+            "RTE interventions can still be added), 'existing_rte_intervention_points' (existing RTE intervention "
+            "points). Omit (null) to return all four lists. Example: [\"runnables\", \"os_tasks\"]"
+        ),
+    )] = None,
     timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
         description="Maximum number of seconds to wait for the configuration to be read. Example: 120",
     )] = 120,
@@ -259,7 +264,7 @@ def get_vecu_configuration(  # pylint: disable=too-many-arguments,too-many-posit
     Use it to see what exists before changing anything and to get the names that
     configure_runnable_mapping and configure_rte_interventions need. Does not modify the project.
 
-    Returned lists (each only if its include_* parameter is true; all are returned by default):
+    Returned lists (only those given in include; all four if include is omitted):
     - runnables: list of {component, runnable, rte_event, event_type, period_ms, mapped_task, position}.
       period_ms is set for timing events only. mapped_task and position are null if the event is not
       mapped yet; position is the execution order inside the task. Timing and init events must be mapped.
@@ -286,13 +291,13 @@ def get_vecu_configuration(  # pylint: disable=too-many-arguments,too-many-posit
         v_ecu = get_vecu(vecu_name)
         ecu_configuration = v_ecu.EcuConfiguration
         result: dict[str, Any] = {"vecu_name": v_ecu.Name}
-        if include_runnables:
+        if include is None or "runnables" in include:
             result["runnables"] = _read_runnables(ecu_configuration)
-        if include_os_tasks:
+        if include is None or "os_tasks" in include:
             result["os_tasks"] = _read_os_tasks(ecu_configuration)
-        if include_possible_rte_intervention_points:
+        if include is None or "possible_rte_intervention_points" in include:
             result["possible_rte_intervention_points"] = _read_possible_rte_intervention_points(ecu_configuration)
-        if include_existing_rte_intervention_points:
+        if include is None or "existing_rte_intervention_points" in include:
             result["existing_rte_intervention_points"] = _read_existing_rte_intervention_points(ecu_configuration)
         return success_response(result)
 
@@ -474,8 +479,8 @@ def configure_runnable_mapping(  # pylint: disable=too-many-locals
         description=(
             "OS tasks to create, or to update if a task with the name exists. Omit (null) to only map "
             "events to existing tasks. At least one of tasks and mappings must be given. "
-            "Example: [{'name': 'Task10ms', 'period_ms': 10, 'priority': 10}, "
-            "{'name': 'TaskInit', 'period_ms': null, 'priority': 20}]"
+            "Example: [{\"name\": \"Task10ms\", \"period_ms\": 10, \"priority\": 10}, "
+            "{\"name\": \"TaskInit\", \"period_ms\": null, \"priority\": 20}]"
         ),
     )] = None,
     mappings: Annotated[Optional[list[RunnableMappingSpec]], Field(
@@ -483,8 +488,8 @@ def configure_runnable_mapping(  # pylint: disable=too-many-locals
         description=(
             "RTE events of runnables to map to OS tasks. Omit (null) to only create or update tasks. "
             "At least one of tasks and mappings must be given. "
-            "Example: [{'task': 'Task10ms', 'component': 'FuelsysController', 'runnable': 'AirflowCalculation', "
-            "'rte_event': 'AirflowCalculation10ms', 'position': 0}]"
+            "Example: [{\"task\": \"Task10ms\", \"component\": \"FuelsysController\", "
+            "\"runnable\": \"AirflowCalculation\", \"rte_event\": \"AirflowCalculation10ms\", \"position\": 0}]"
         ),
     )] = None,
     vecu_name: VecuNameParam = None,
@@ -661,12 +666,15 @@ def _map_points_to_service(rte_interventions, key: InterventionPointId, points: 
 @on_com_thread
 def configure_rte_interventions(  # pylint: disable=too-many-locals
     vecu_name: VecuNameParam = None,
-    intervention_points: Annotated[Optional[list[InterventionPointSpec]], Field(
+    intervention_points: Annotated[Optional[Annotated[
+        list[InterventionPointSpec], Field(json_schema_extra={"uniqueItems": True}),
+    ]], Field(
         description=(
             "Port data elements to create RTE intervention points for. Omitted or null: all possible points, "
             "as listed by get_vecu_configuration (possible_rte_intervention_points). Empty list []: no points or "
             "services are created, e.g. to only set enable. "
-            "Example: [{'component': 'FuelsysController', 'port': 'RpCorrectedSensors', 'data_element': 'Sensors'}]"
+            "Example: [{\"component\": \"FuelsysController\", \"port\": \"RpCorrectedSensors\", "
+            "\"data_element\": \"Sensors\"}]"
         ),
     )] = None,
     access: Annotated[Access, Field(
