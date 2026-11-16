@@ -47,7 +47,7 @@ def _vecu(name="MyVEcu"):
     v_ecu = MagicMock()
     v_ecu.Name = name
     v_ecu.System.AUTOSARPathName = f"/Systems/{name}_System"
-    v_ecu.EcuConfiguration = f"{name}_EcuConfiguration"
+    v_ecu.EcuConfiguration.Name = f"EcuConfiguration_{name}"
     return v_ecu
 
 
@@ -120,7 +120,7 @@ def test_get_or_create_vecu_reuses_vecu_by_name(app):
     assert result["created"] is False
     assert result["vecu_name"] == "MyVEcu"
     assert result["system_path"] == "/Systems/MyVEcu_System"
-    assert result["ecu_configuration"] == "MyVEcu_EcuConfiguration"
+    assert result["ecu_configuration"] == "EcuConfiguration_MyVEcu"
     assert result["message"] == "Reusing existing V-ECU 'MyVEcu'."
     app.ActiveProject.VEcus.Item.assert_called_once_with("MyVEcu")
     app.ActiveProject.FindChildElements.assert_not_called()
@@ -211,7 +211,7 @@ def test_get_or_create_vecu_creates_vecu_with_defaults(app):
     assert result["created"] is True
     assert result["vecu_name"] == "NewVEcu"
     assert result["system_path"] == "/Systems/NewVEcu_System"
-    assert result["ecu_configuration"] == "NewVEcu_EcuConfiguration"
+    assert result["ecu_configuration"] == "EcuConfiguration_NewVEcu"
     assert result["message"] == "V-ECU created successfully."
     assert result["component_path"] == "/SWA/RootComposition"
     composition.CreateVEcu.assert_called_once_with(options)

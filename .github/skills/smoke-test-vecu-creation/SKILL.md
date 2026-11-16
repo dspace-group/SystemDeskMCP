@@ -17,6 +17,9 @@ Use the SystemDesk MCP Server to perform an end-to-end smoke test by importing t
 # Instructions
 
 1. Import `./assets/smoke-test-vecu-gen.arxml`, create a V-ECU and export it as an FMU.
+   - Every tool call must return `status: success`.
+   - The V-ECU creation response must contain `created: true`, a readable `ecu_configuration` name, `component_path`, and `creation_options`.
+   - The export response must contain the `vecu_name` and an `fmu_file` named `<vecu_name>.fmu` in the requested directory. The file must exist and contain `modelDescription.xml` and a binary under `binaries/`.
 2. Close SystemDesk.
 
 # Output

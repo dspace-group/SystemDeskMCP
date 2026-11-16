@@ -16,10 +16,6 @@ from systemdesk_mcp.common import (
 from systemdesk_mcp.mcp_app import mcp
 from systemdesk_mcp.runtime import get_app, get_vecu, logged, on_com_thread
 
-Section = Literal["runnables", "os_tasks", "possible_rte_intervention_points", "existing_rte_intervention_points"]
-ALL_SECTIONS: tuple[Section, ...] = (
-    "runnables", "os_tasks", "possible_rte_intervention_points", "existing_rte_intervention_points",
-)
 Access = Literal["dap", "rte_service_port"]
 
 # SystemDesk enum values (dSPACE.SystemDesk.Components.AutomationFacade.RteInterventions).
@@ -176,7 +172,7 @@ def _access_of(point, service) -> Optional[str]:
 # get_vecu_configuration
 # --------------------------------------------------------------------------------------------------
 
-def _runnables_section(ecu_configuration) -> list[dict[str, Any]]:
+def _read_runnables(ecu_configuration) -> list[dict[str, Any]]:
     rte_configuration = _get_module_configuration(ecu_configuration, "Rte", required=False)
     entries = []
     for component in _flat_view_components(ecu_configuration):
@@ -195,7 +191,7 @@ def _runnables_section(ecu_configuration) -> list[dict[str, Any]]:
     return entries
 
 
-def _os_tasks_section(ecu_configuration) -> list[dict[str, Any]]:
+def _read_os_tasks(ecu_configuration) -> list[dict[str, Any]]:
     os_configuration = _get_module_configuration(ecu_configuration, "Os", required=False)
     if os_configuration is None:
         return []
@@ -205,7 +201,7 @@ def _os_tasks_section(ecu_configuration) -> list[dict[str, Any]]:
     ]
 
 
-def _possible_intervention_points_section(ecu_configuration) -> list[dict[str, Any]]:
+def _read_possible_rte_intervention_points(ecu_configuration) -> list[dict[str, Any]]:
     possible = ecu_configuration.RteInterventions.GetPossibleInterventionPoints(_KIND_OPTION_READ_AND_WRITE_ONLY)
     keys = []
     for point in possible:
@@ -215,7 +211,7 @@ def _possible_intervention_points_section(ecu_configuration) -> list[dict[str, A
     return [{"component": c, "port": p, "data_element": d} for c, p, d in keys]
 
 
-def _existing_intervention_points_section(ecu_configuration) -> list[dict[str, Any]]:
+def _read_existing_rte_intervention_points(ecu_configuration) -> list[dict[str, Any]]:
     entries = []
     for point in ecu_configuration.RteInterventions.GetInterventionPoints():
         service = point.GetInterventionService()
@@ -225,14 +221,6 @@ def _existing_intervention_points_section(ecu_configuration) -> list[dict[str, A
             "access": _access_of(point, service),
         })
     return entries
-
-
-_SECTION_READERS = {
-    "runnables": _runnables_section,
-    "os_tasks": _os_tasks_section,
-    "possible_rte_intervention_points": _possible_intervention_points_section,
-    "existing_rte_intervention_points": _existing_intervention_points_section,
-}
 
 
 @mcp.tool(
@@ -247,15 +235,20 @@ _SECTION_READERS = {
 )
 @logged
 @on_com_thread
-def get_vecu_configuration(
+def get_vecu_configuration(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     vecu_name: VecuNameParam = None,
-    sections: Annotated[Optional[list[Section]], Field(
-        min_length=1,
-        description=(
-            "Parts of the configuration to return: 'runnables', 'os_tasks', 'possible_rte_intervention_points', "
-            "'existing_rte_intervention_points'. Defaults to all. Example: ['runnables', 'os_tasks']"
-        ),
-    )] = None,
+    include_runnables: Annotated[bool, Field(
+        description="Return the runnables with their RTE events and task mapping. Example: true",
+    )] = True,
+    include_os_tasks: Annotated[bool, Field(
+        description="Return the OS tasks. Example: true",
+    )] = True,
+    include_possible_rte_intervention_points: Annotated[bool, Field(
+        description="Return the port data elements where RTE interventions can still be added. Example: false",
+    )] = True,
+    include_existing_rte_intervention_points: Annotated[bool, Field(
+        description="Return the existing RTE intervention points. Example: false",
+    )] = True,
     timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument  # used by @on_com_thread
         description="Maximum number of seconds to wait for the configuration to be read. Example: 120",
     )] = 120,
@@ -266,7 +259,7 @@ def get_vecu_configuration(
     Use it to see what exists before changing anything and to get the names that
     configure_runnable_mapping and configure_rte_interventions need. Does not modify the project.
 
-    Sections (one entry per requested section):
+    Returned lists (each only if its include_* parameter is true; all are returned by default):
     - runnables: list of {component, runnable, rte_event, event_type, period_ms, mapped_task, position}.
       period_ms is set for timing events only. mapped_task and position are null if the event is not
       mapped yet; position is the execution order inside the task. Timing and init events must be mapped.
@@ -278,7 +271,7 @@ def get_vecu_configuration(
 
     Preconditions: start_systemdesk must be called first; a project with a V-ECU must be open.
     vecu_name may be omitted only if the project contains exactly one V-ECU.
-    Returns vecu_name and one entry per requested section.
+    Returns vecu_name and the included lists.
 
     Failure codes (error_type / error_code: condition):
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
@@ -292,10 +285,15 @@ def get_vecu_configuration(
     try:
         v_ecu = get_vecu(vecu_name)
         ecu_configuration = v_ecu.EcuConfiguration
-        requested = [s for s in ALL_SECTIONS if sections is None or s in sections]
         result: dict[str, Any] = {"vecu_name": v_ecu.Name}
-        for section in requested:
-            result[section] = _SECTION_READERS[section](ecu_configuration)
+        if include_runnables:
+            result["runnables"] = _read_runnables(ecu_configuration)
+        if include_os_tasks:
+            result["os_tasks"] = _read_os_tasks(ecu_configuration)
+        if include_possible_rte_intervention_points:
+            result["possible_rte_intervention_points"] = _read_possible_rte_intervention_points(ecu_configuration)
+        if include_existing_rte_intervention_points:
+            result["existing_rte_intervention_points"] = _read_existing_rte_intervention_points(ecu_configuration)
         return success_response(result)
 
     except PermanentError as exc:

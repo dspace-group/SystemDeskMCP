@@ -348,7 +348,7 @@ def test_named_vecu_is_used_among_several(app):
     World(app, vecu_names=("Controller", "Test_Ecu"))
 
     # act
-    result = vc.get_vecu_configuration(vecu_name="Test_Ecu", sections=["os_tasks"])
+    result = vc.get_vecu_configuration(vecu_name="Test_Ecu")
 
     # assert
     assert result["status"] == "success"
@@ -375,7 +375,7 @@ def test_com_failure_is_permanent_unexpected_error(world, tool):
 # get_vecu_configuration
 # --------------------------------------------------------------------------------------------------
 
-def test_get_returns_all_sections_by_default(world):
+def test_get_returns_all_lists_by_default(world):
     # arrange
     task10 = world.tasks.Add("Task10ms")
     task10.OsTaskPeriod = 0.01
@@ -407,9 +407,12 @@ def test_get_returns_all_sections_by_default(world):
     ]
 
 
-def test_get_only_requested_sections(world):
+def test_get_returns_only_included_lists(world):
     # act
-    result = vc.get_vecu_configuration(sections=["os_tasks", "runnables"])
+    result = vc.get_vecu_configuration(
+        include_possible_rte_intervention_points=False,
+        include_existing_rte_intervention_points=False,
+    )
 
     # assert
     assert set(result) == {"status", "vecu_name", "runnables", "os_tasks"}
@@ -421,7 +424,7 @@ def test_get_runnables_without_rte_module(world):
     del world.modules["Rte"]
 
     # act
-    result = vc.get_vecu_configuration(sections=["runnables"])
+    result = vc.get_vecu_configuration(include_os_tasks=False)
 
     # assert
     assert [r["mapped_task"] for r in result["runnables"]] == [None, None, None, None]
@@ -434,7 +437,7 @@ def test_get_runnables_skips_component_without_internal_behaviors(world, autosar
     world.ecu.EcuExtractSystem.RootSwCompositionPrototype.SoftwareCompositionTref.Components.Elements.append(component)
 
     # act
-    result = vc.get_vecu_configuration(sections=["runnables"])
+    result = vc.get_vecu_configuration()
 
     # assert
     assert result["status"] == "success"
@@ -446,7 +449,7 @@ def test_get_os_tasks_without_os_module(world):
     del world.modules["Os"]
 
     # act
-    result = vc.get_vecu_configuration(sections=["os_tasks"])
+    result = vc.get_vecu_configuration()
 
     # assert
     assert result["os_tasks"] == []
@@ -463,7 +466,7 @@ def test_get_possible_intervention_points_are_unique_and_skip_irv_and_service_co
     ]
 
     # act
-    result = vc.get_vecu_configuration(sections=["possible_rte_intervention_points"])
+    result = vc.get_vecu_configuration(include_existing_rte_intervention_points=False)
 
     # assert
     assert result["possible_rte_intervention_points"] == [
@@ -486,17 +489,16 @@ def test_get_existing_intervention_points_report_service_and_access(world):
     ]
 
     # act
-    result = vc.get_vecu_configuration(sections=["existing_rte_intervention_points"])
+    result = vc.get_vecu_configuration(include_possible_rte_intervention_points=False)
 
     # assert
     assert [(e["service"], e["access"]) for e in result["existing_rte_intervention_points"]] == [
         ("InService", "dap"), ("OutService", "rte_service_port"), (None, None)]
 
 
-@pytest.mark.parametrize("sections", [[], ["unknown"]])
-def test_get_invalid_sections_rejected_by_schema(sections):
+def test_get_removed_sections_argument_rejected_by_schema():
     with pytest.raises(ValidationError):
-        validate_args(vc.get_vecu_configuration, sections=sections)
+        validate_args(vc.get_vecu_configuration, sections=["os_tasks"])
 
 
 # --------------------------------------------------------------------------------------------------

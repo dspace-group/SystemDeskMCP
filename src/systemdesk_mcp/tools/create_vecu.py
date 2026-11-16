@@ -111,10 +111,11 @@ def _find_vecu(active_project, vecu_name, reuse_existing_vecu):
 
 def _vecu_response(v_ecu_obj: Any) -> dict[str, Any]:
     system = v_ecu_obj.System
+    ecu_configuration = v_ecu_obj.EcuConfiguration
     return {
         "vecu_name": v_ecu_obj.Name,
         "system_path": system.AUTOSARPathName if system is not None else None,
-        "ecu_configuration": v_ecu_obj.EcuConfiguration,
+        "ecu_configuration": ecu_configuration.Name if ecu_configuration is not None else None,
     }
 
 
@@ -251,7 +252,7 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
     Without vecu_name and with reuse_existing_vecu false, each call creates a new V-ECU.
 
     Preconditions: start_systemdesk must be called first; a project must be open.
-    Returns the resolved V-ECU name, system path, ECU configuration, and whether it was newly created;
+    Returns the resolved V-ECU name, system path, ECU configuration name, and whether it was newly created;
     on creation also the component_path the V-ECU was created from and creation_options, the
     creation option values used (keyed by parameter name), including the defaults saved in
     SystemDesk for options left unset.
