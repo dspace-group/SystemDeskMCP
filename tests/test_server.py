@@ -95,6 +95,20 @@ async def test_tool_parameters_are_described_and_strict():
 
 
 @pytest.mark.anyio
+async def test_structured_examples_are_valid_json():
+    tools = await _registered_function_tools(srv.mcp)
+
+    for tool in tools:
+        for name, prop in tool.parameters.get("properties", {}).items():
+            example = prop.get("description", "").rpartition("Example: ")[2]
+            if example.startswith(("[", "{")):
+                try:
+                    json.loads(example)
+                except json.JSONDecodeError:
+                    pytest.fail(f"Tool '{tool.name}': example of parameter '{name}' must be valid JSON.")
+
+
+@pytest.mark.anyio
 async def test_tool_descriptions_list_failure_codes():
     tools = await _registered_function_tools(srv.mcp)
 

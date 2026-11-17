@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CATALOG xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" CREATOR="SystemDesk" CREATOR-VERSION="2025-B" F-CM-TOOL-ID="Catalog_V3_0_0.sl.ComplexTypes.xsd 1.1" F-DTD-BUILD="14" F-DTD-VERSION="3.0.0" F-PUBID="-//ASAM//DTD CONTAINER CATALOG:V3.0.0:LAI:IAI:ML:CC.DTD//EN">
+  <SHORT-NAME>smoke-test-vecu-gen.arxml.ctlg</SHORT-NAME>
+  <ABLOCKS>
+    <ABLOCK F-ID-CLASS="ABLOCK">
+      <SHORT-NAME>A_AppSw.c</SHORT-NAME>
+      <CATEGORY>SWSRC</CATEGORY>
+      <FILES>
+        <FILE>A_AppSw.c</FILE>
+      </FILES>
+    </ABLOCK>
+  </ABLOCKS>
+</CATALOG>

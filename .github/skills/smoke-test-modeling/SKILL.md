@@ -1,11 +1,10 @@
 ---
-name: smoke-test
-description: End-to-end smoke test for the SystemDesk MCP server.
+name: smoke-test-modeling
+description:  End-to-end smoke test covering SystemDesk startup, modeling, validation, and shutdown.
 disable-model-invocation: true
 ---
 # Goal
-
-Use the SystemDesk MCP Server to perform an end-to-end smoke test, ensuring that the core functionalities are working as expected.
+Use the SystemDesk MCP Server to verify that SystemDesk can be started, used for modeling and validation, and shut down successfully.
 
 # Rules
 
@@ -18,7 +17,7 @@ Use the SystemDesk MCP Server to perform an end-to-end smoke test, ensuring that
 
 1. Always clean up any created directories or files after the test execution, regardless of the test results.
 2. SystemDesk.exe should not be running before the test starts.
-3. Import `tests\smoke-test.arxml` and create a composition at `/SWA/Compositions/SmokeComposition` containing `/SWA/A` and `/SWA/B`.
+3. Import `./assets/smoke-test.arxml` and create a composition at `/SWA/Compositions/SmokeComposition` containing `/SWA/A` and `/SWA/B`.
 4. Use the tools provided by the SystemDesk MCP server to validate the project.
    The following results are expected from the validation:
      - 1 Error

@@ -23,6 +23,10 @@ class ErrorCode(str, Enum):
     INVALID_AUTOSAR_ELEMENT_TYPE = "INVALID_AUTOSAR_ELEMENT_TYPE"
     AUTOSAR_ELEMENT_ALREADY_EXISTS = "AUTOSAR_ELEMENT_ALREADY_EXISTS"
     UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
+    VECU_NOT_FOUND = "VECU_NOT_FOUND"
+    VECU_SELECTION_REQUIRED = "VECU_SELECTION_REQUIRED"
+    INVALID_ARGUMENTS = "INVALID_ARGUMENTS"
+    SYSTEMDESK_OPERATION_FAILED = "SYSTEMDESK_OPERATION_FAILED"
 
 
 class PermanentError(Exception):
@@ -66,8 +70,18 @@ ARXML_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*\.[aA][rR][xX][mM][lL]$"
 SDP_PATTERN = _ABSOLUTE_PATH_PREFIX + r".*\.[sS][dD][pP]$"
 FILE_NAME_PATTERN = r'^[^<>:"/\\|?*\x00-\x1F]+$'
 
-AUTOSAR_ELEMENT_PATH_PATTERN = r"^(/[a-zA-Z][a-zA-Z0-9_]{0,127}){2,}$"
+AUTOSAR_SHORT_NAME_PATTERN = r"^[a-zA-Z][a-zA-Z0-9_]{0,127}$"
+AutosarShortName = Annotated[str, Field(pattern=AUTOSAR_SHORT_NAME_PATTERN)]
+AUTOSAR_ELEMENT_PATH_PATTERN = r"^(/" + AUTOSAR_SHORT_NAME_PATTERN[1:-1] + r"){2,}$"
 AutosarElementPath = Annotated[str, Field(pattern=AUTOSAR_ELEMENT_PATH_PATTERN)]
+
+VecuNameParam = Annotated[Optional[AutosarShortName], Field(
+    description=(
+        "AUTOSAR short name of the V-ECU, as returned in 'vecu_name' by get_or_create_vecu. "
+        "May be omitted (null) only if the open project contains exactly one V-ECU; "
+        "if it contains several, ask the user which one to use. Example: 'MyVEcu'"
+    ),
+)]
 
 MAX_TIMEOUT_SECONDS = 3600
 TimeoutSeconds = Annotated[int, Field(ge=1, le=MAX_TIMEOUT_SECONDS)]
