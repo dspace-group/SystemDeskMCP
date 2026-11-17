@@ -12,6 +12,9 @@ from systemdesk_mcp import common, runtime
 from tests.helpers import INVALID_ABSOLUTE_DIRS, VALID_ABSOLUTE_DIRS, validate_args
 
 PROJECT_FILE = os.path.join("C:\\", "Projects", "MyECU", "MyECU.sdp")
+GENERIC_EXPORT_ERROR_IDS = ("Error(102,110,5)", "Error(95,1140,108)", "Error(95,1140,151)")
+BUILDING_VECU_MESSAGE_ID = "Info(95,1140,143)"
+BUILD_LOG_MESSAGE_ID = "Info(102,110,13)"
 
 
 def _vecu(name="MyVEcu", build_script=None, default_build_script="C:\\Build\\default_build.py"):
@@ -369,17 +372,17 @@ def test_export_vecu_fmu_ignores_only_generic_errors_and_reports_build_log(app):
     # arrange
     v_ecu = _vecu()
     v_ecu.GetNewExportFmuSettings.return_value = SimpleNamespace(Result=_build_result(
-        _build_message("Error(102,110,5)"),
-        _build_message("Error(95,1140,108)"),
-        _build_message("Error(95,1140,151)"),
+        _build_message(GENERIC_EXPORT_ERROR_IDS[0]),
+        _build_message(GENERIC_EXPORT_ERROR_IDS[1]),
+        _build_message(GENERIC_EXPORT_ERROR_IDS[2]),
         _build_message("Warning(1,2,3)", severity="Warning"),
     ))
     _set_vecus(app, v_ecu)
     build_log = _build_message(
-        "Info(102,110,13)", "Writing the build log to: C:\\Build\\build.log", severity="Info",
+        BUILD_LOG_MESSAGE_ID, "Writing the build log to: C:\\Build\\build.log", severity="Info",
     )
     app.Messages.Elements = [
-        _build_message("Info(95,1140,143)", severity="Info", children=[
+        _build_message(BUILDING_VECU_MESSAGE_ID, severity="Info", children=[
             _build_message("Info(1,1,1)", severity="Info", children=[build_log]),
         ]),
     ]
@@ -400,10 +403,10 @@ def test_export_vecu_fmu_reports_build_log_not_found(app):
     # arrange
     v_ecu = _vecu()
     v_ecu.GetNewExportFmuSettings.return_value = SimpleNamespace(
-        Result=_build_result(_build_message("Error(102,110,5)")),
+        Result=_build_result(_build_message(GENERIC_EXPORT_ERROR_IDS[0])),
     )
     _set_vecus(app, v_ecu)
-    app.Messages.Elements = [_build_message("Info(95,1140,143)", severity="Info")]
+    app.Messages.Elements = [_build_message(BUILDING_VECU_MESSAGE_ID, severity="Info")]
 
     # act
     result = vecu_export.export_vecu_fmu(vecu_name="MyVEcu")
@@ -418,7 +421,7 @@ def test_export_vecu_fmu_reports_specific_errors_with_children(app):
     # arrange
     v_ecu = _vecu()
     v_ecu.GetNewExportFmuSettings.return_value = SimpleNamespace(Result=_build_result(
-        _build_message("Error(102,110,5)", "Generic"),
+        _build_message(GENERIC_EXPORT_ERROR_IDS[0], "Generic"),
         _build_message("Error(9,9,9)", "Compiler failed", children=[
             _build_message("Error(9,9,10)", "Missing header"),
         ]),

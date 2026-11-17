@@ -21,13 +21,16 @@ from systemdesk_mcp.tools.vecu_configuration import (
 from tests.helpers import validate_args
 
 READ, WRITE = 0, 2
+KIND_OPTION_READ_AND_WRITE_ONLY = 3
+NO_SERVICE, DAP_SERVICE, RTE_SERVICE_PORT = 0, 1, 2
+DEFAULT_TASK_ACTIVATION = 1
+DEFAULT_TICK_DURATION = -1.0
+MIN_PERIOD_MS, MAX_PERIOD_MS = 0.0001, 3_600_000
 OS_PATH = "/ArPackage/EcuConfiguration_Test_Ecu/Os"
 RTE_PATH = "/ArPackage/EcuConfiguration_Test_Ecu/Rte"
 
 
-# --------------------------------------------------------------------------------------------------
-# Fakes of the SystemDesk object model
-# --------------------------------------------------------------------------------------------------
+# --- Fakes of the SystemDesk object model ---
 
 class Collection:
     """Named collection with Elements, Item(name) -> None if missing, and Add(name)."""
@@ -119,8 +122,8 @@ class IrvPoint:
 class Service:
     def __init__(self, name):
         self.ShortName = name
-        self.InputType = 0
-        self.OutputType = 0
+        self.InputType = NO_SERVICE
+        self.OutputType = NO_SERVICE
         self.points = []
 
     def AddInterventionPoints(self, points):
@@ -220,7 +223,7 @@ class World:
         for task in self.tasks.Elements:
             if not any(a.RteActivationOsTaskRef is task for a in self.activations):
                 self.activations.append(SimpleNamespace(
-                    ShortName=task.ShortName, RteActivationOsTaskRef=task, RteExpectedTickDuration=-1.0))
+                    ShortName=task.ShortName, RteActivationOsTaskRef=task, RteExpectedTickDuration=DEFAULT_TICK_DURATION))
         errors = [SimpleNamespace(MessageIdentifier=i, MessageText=t) for i, t in self.plugin_errors]
         return SimpleNamespace(ErrorMessages=SimpleNamespace(Count=len(errors), Elements=errors))
 
@@ -248,9 +251,7 @@ def _mapping_spec(task="Task10ms", event="Calc10ms", runnable="Calc", position=N
     return RunnableMappingSpec(task=task, component=component, runnable=runnable, rte_event=event, position=position)
 
 
-# --------------------------------------------------------------------------------------------------
-# Common preconditions
-# --------------------------------------------------------------------------------------------------
+# --- Common preconditions ---
 
 def _call(tool):
     if tool is vc.configure_runnable_mapping:
@@ -372,9 +373,7 @@ def test_com_failure_is_permanent_unexpected_error(world, tool):
     assert result["error_code"] == "UNEXPECTED_ERROR"
 
 
-# --------------------------------------------------------------------------------------------------
-# get_vecu_configuration
-# --------------------------------------------------------------------------------------------------
+# --- get_vecu_configuration ---
 
 def test_get_returns_all_lists_by_default(world):
     # arrange
@@ -471,15 +470,15 @@ def test_get_possible_intervention_points_are_unique_and_skip_irv_and_service_co
         {"component": "Ctrl", "port": "RpIn", "data_element": "Value"},
         {"component": "Ctrl", "port": "PpOut", "data_element": "Result"},
     ]
-    assert world.rti.kind_options == [3]
+    assert world.rti.kind_options == [KIND_OPTION_READ_AND_WRITE_ONLY]
 
 
 def test_get_existing_intervention_points_report_service_and_access(world):
     # arrange
     dap = Service("InService")
-    dap.InputType = 1
+    dap.InputType = DAP_SERVICE
     port = Service("OutService")
-    port.OutputType = 2
+    port.OutputType = RTE_SERVICE_PORT
     world.rti.existing = [
         Point(world.component, "RpIn", "Value", READ, service=dap),
         Point(world.component, "PpOut", "Result", WRITE, service=port),
@@ -505,9 +504,7 @@ def test_get_removed_sections_argument_rejected_by_schema():
         validate_args(vc.get_vecu_configuration, sections=["os_tasks"])
 
 
-# --------------------------------------------------------------------------------------------------
-# configure_runnable_mapping
-# --------------------------------------------------------------------------------------------------
+# --- configure_runnable_mapping ---
 
 def test_mapping_creates_tasks_runs_update_and_maps_events(world):
     # act
@@ -531,10 +528,10 @@ def test_mapping_creates_tasks_runs_update_and_maps_events(world):
     assert result["schedule_generated"] is True
     assert result["errors"] == []
     task10 = world.tasks.Item("Task10ms")
-    assert task10.OsTaskActivation == 1
+    assert task10.OsTaskActivation == DEFAULT_TASK_ACTIVATION
     assert task10.OsTaskPeriod == pytest.approx(0.01)
     assert {a.ShortName: a.RteExpectedTickDuration for a in world.activations} == {
-        "Task10ms": pytest.approx(0.01), "TaskInit": -1.0}
+        "Task10ms": pytest.approx(0.01), "TaskInit": DEFAULT_TICK_DURATION}
     mapping = world.rte_cfg.RteSwComponentInstances.Item("Ctrl").RteEventToTaskMappings.Item("Calc10ms")
     assert mapping.RteMappedToTaskRef is task10
     assert mapping.RteEventRef.ShortName == "Calc10ms"
@@ -741,7 +738,7 @@ def test_mapping_invalid_mapping_rejected_by_schema(mapping):
         validate_args(vc.configure_runnable_mapping, mappings=[mapping])
 
 
-@pytest.mark.parametrize("period_ms", [0.0001, 3_600_000])
+@pytest.mark.parametrize("period_ms", [MIN_PERIOD_MS, MAX_PERIOD_MS])
 def test_mapping_task_period_bounds_accepted_by_schema(period_ms):
     validate_args(vc.configure_runnable_mapping, tasks=[{"name": "Task", "priority": 1, "period_ms": period_ms}])
 
@@ -771,9 +768,7 @@ def test_mapping_without_tasks_and_mappings_is_rejected(world, arguments):
     world.rte_cfg.RunBswPlugin.assert_not_called()
 
 
-# --------------------------------------------------------------------------------------------------
-# configure_rte_interventions
-# --------------------------------------------------------------------------------------------------
+# --- configure_rte_interventions ---
 
 def test_interventions_default_creates_a_service_for_each_point(world):
     # arrange
@@ -799,8 +794,8 @@ def test_interventions_default_creates_a_service_for_each_point(world):
     assert result["access"] == "dap"
     assert result["enabled"] is True
     services = {s.ShortName: s for s in world.rti.InterventionServices.Elements}
-    assert (services["Ctrl_RpIn_InputService"].InputType, services["Ctrl_RpIn_InputService"].OutputType) == (1, 0)
-    assert (services["Ctrl_PpOut_OutputService"].InputType, services["Ctrl_PpOut_OutputService"].OutputType) == (0, 1)
+    assert (services["Ctrl_RpIn_InputService"].InputType, services["Ctrl_RpIn_InputService"].OutputType) == (DAP_SERVICE, NO_SERVICE)
+    assert (services["Ctrl_PpOut_OutputService"].InputType, services["Ctrl_PpOut_OutputService"].OutputType) == (NO_SERVICE, DAP_SERVICE)
     assert len(services["Ctrl_RpIn_InputService"].points) == 1
     assert len(services["Ctrl_RpIn_InputService1"].points) == 1
     assert len(world.rti.possible) == 2
@@ -816,7 +811,7 @@ def test_interventions_rte_service_port_access(world):
 
     # assert
     assert result["access"] == "rte_service_port"
-    assert world.rti.InterventionServices.Elements[0].InputType == 2
+    assert world.rti.InterventionServices.Elements[0].InputType == RTE_SERVICE_PORT
 
 
 def test_interventions_selected_points_only(world):
@@ -849,7 +844,7 @@ def test_interventions_are_idempotent(world):
 def test_interventions_do_not_reuse_existing_service(world):
     # arrange
     service = world.rti.InterventionServices.AddNew("Ctrl_RpIn_InputService")
-    service.InputType = 1
+    service.InputType = DAP_SERVICE
     world.rti.possible = [Point(world.component, "RpIn", "Value", READ, runnable="New")]
 
     # act
@@ -858,13 +853,13 @@ def test_interventions_do_not_reuse_existing_service(world):
     # assert
     assert result["points_created"] == ["Rte_IRead_Ctrl_New_RpIn_Value"]
     assert result["services_created"] == ["Ctrl_RpIn_InputService1"]
-    assert service.InputType == 1
+    assert service.InputType == DAP_SERVICE
     assert service.points == []
     created_service = next(
         service for service in world.rti.InterventionServices.Elements
         if service.ShortName == "Ctrl_RpIn_InputService1"
     )
-    assert created_service.InputType == 2
+    assert created_service.InputType == RTE_SERVICE_PORT
     assert len(created_service.points) == 1
 
 

@@ -31,6 +31,7 @@ _COMPONENT_TYPES_WITHOUT_INTERNAL_BEHAVIORS = ("COMPOSITION-SW-COMPONENT-TYPE", 
 _MIN_PERIOD_MS = 0.0001
 _MAX_PERIOD_MS = 3_600_000
 _MAX_PRIORITY = 2**31 - 1
+_DEFAULT_TASK_ACTIVATION = 1
 
 
 class OsTaskSpec(BaseModel):
@@ -369,7 +370,7 @@ def _create_or_update_task(os_configuration, spec: OsTaskSpec) -> None:
     task = os_configuration.OsTasks.Item(spec.name)
     if task is None:
         task = os_configuration.OsTasks.Add(spec.name)
-        task.OsTaskActivation = 1
+        task.OsTaskActivation = _DEFAULT_TASK_ACTIVATION
     task.OsTaskPriority = spec.priority
     if spec.period_ms is not None:
         task.OsTaskPeriod = spec.period_ms / 1000
@@ -449,6 +450,7 @@ def _message_text(message) -> str:
 def _module_validation_errors(ecu_configuration, modules: list[Any]) -> list[dict[str, str]]:
     """Validate the ECU configuration and return the errors reported for the given modules."""
     module_paths = [module.AUTOSARPathName for module in modules]
+    ecu_configuration.Validate.Clear()
     ecu_configuration.Validate.Do()
     errors = []
     for result in ecu_configuration.Validate.ResultStructure.RuleResults:

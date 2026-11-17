@@ -180,6 +180,7 @@ def validate_autosar(
 
         # Validation runs on the dedicated COM apartment thread; the timeout
         # is enforced by the @on_com_thread decorator.
+        active_project.Validate.Clear()
         active_project.Validate.Do()
 
         rule_results = []
