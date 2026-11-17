@@ -2,8 +2,32 @@
 
 import inspect
 import typing
+from unittest.mock import MagicMock
 
 from pydantic import TypeAdapter
+
+
+ASSEMBLY_ENDPOINTS = {
+    "provider": {"component": "SpeedSensor", "port": "PpSpeed"},
+    "requester": {"component": "SpeedController", "port": "RpSpeed"},
+}
+DELEGATION_ENDPOINTS = {
+    "provider": {"component": None, "port": "PpSpeed"},
+    "requester": {"component": "SpeedController", "port": "RpSpeed"},
+}
+
+
+def make_connector(path, connector_type="ASSEMBLY-SW-CONNECTOR"):
+    """Create a connector with concrete endpoint prototype names."""
+    return MagicMock(
+        spec=["AUTOSARPathName", "AutosarType", "LeftComponentPrototype", "LeftPortPrototype",
+              "RightComponentPrototype", "RightPortPrototype"],
+        AUTOSARPathName=path, AutosarType=connector_type,
+        LeftComponentPrototype=None if connector_type == "DELEGATION-SW-CONNECTOR" else MagicMock(ShortName="SpeedSensor"),
+        LeftPortPrototype=MagicMock(ShortName="PpSpeed"),
+        RightComponentPrototype=MagicMock(ShortName="SpeedController"),
+        RightPortPrototype=MagicMock(ShortName="RpSpeed"),
+    )
 
 
 def validate_args(tool, **kwargs):

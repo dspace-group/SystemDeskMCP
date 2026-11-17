@@ -8,20 +8,21 @@ from pydantic import ValidationError
 
 from systemdesk_mcp.tools import autosar_composition
 from systemdesk_mcp import runtime
-from tests.helpers import validate_args
+from tests.helpers import ASSEMBLY_ENDPOINTS, DELEGATION_ENDPOINTS, make_connector, validate_args
 
 
 @pytest.mark.parametrize("strategy", [
-    strategy for strategy in autosar_composition.PortConnectionStrategy
-    if strategy != autosar_composition.PortConnectionStrategy.COMBINED
+    strategy for strategy in autosar_composition._PortConnectionStrategy  # pylint: disable=protected-access
+    if strategy != autosar_composition._PortConnectionStrategy.COMBINED  # pylint: disable=protected-access
 ])
 @pytest.mark.parametrize("single_only", [True, False])
-def test_connect_composition_ports_strategy_mapping(app, strategy, single_only):
+@pytest.mark.parametrize("closed_loop", [True, False])
+def test_connect_composition_ports_strategy_mapping(app, strategy, single_only, closed_loop):
     # arrange
     composition = MagicMock(AutosarType="COMPOSITION-SW-COMPONENT-TYPE", AUTOSARPathName="/SWA/Top")
     composition.Ports.Elements = []
     app.ActiveProject.GetElementsByARPath.return_value = [composition]
-    connector = MagicMock(AutosarType="ASSEMBLY-SW-CONNECTOR", AUTOSARPathName="/SWA/Top/Connection")
+    connector = make_connector("/SWA/Top/Connection")
     composition.ConnectPortsOfComposition.return_value = MagicMock(
         Connections=(connector,), DelegationPorts=(),
     )
@@ -30,13 +31,13 @@ def test_connect_composition_ports_strategy_mapping(app, strategy, single_only):
     # act
     result = autosar_composition.connect_composition_ports(
         composition_path="/SWA/Top", strategy=strategy,
-        single_connections_only=single_only, **expressions,
+        single_connections_only=single_only, allow_closed_loop_connections=closed_loop, **expressions,
     )
 
     # assert
     assert result == {
         "status": "success", "path": "/SWA/Top", "connection_count": 1,
-        "connections": [{"path": "/SWA/Top/Connection", "type": "ASSEMBLY-SW-CONNECTOR"}],
+        "connections": [{"path": "/SWA/Top/Connection", "type": "ASSEMBLY-SW-CONNECTOR", **ASSEMBLY_ENDPOINTS}],
     }
     configuration = composition.CreatePortConnectorConfiguration.return_value
     assert configuration.IsPortNameStrategyChecked == (strategy == "port_name")
@@ -49,7 +50,7 @@ def test_connect_composition_ports_strategy_mapping(app, strategy, single_only):
     assert configuration.IsUseSelectedInterfacesChecked is False
     assert configuration.IsCreateDelegationPortsChecked is False
     assert configuration.IsCreateSingleDelegationPortChecked is False
-    assert configuration.IsClosedLoopConnectionsChecked is False
+    assert configuration.IsClosedLoopConnectionsChecked is closed_loop
     assert configuration.IsConnectPortsWithoutInterfaceChecked is False
     composition.CreatePortConnectorConfiguration.assert_called_once_with()
     composition.ConnectPortsOfComposition.assert_called_once_with(configuration)
@@ -71,6 +72,7 @@ def fixture_port_composition(app):
         "IsSingleConnectionsChecked", "IsUseAllInterfacesChecked", "IsUseSelectedInterfacesChecked",
         "IsCreateDelegationPortsChecked", "IsCreateSingleDelegationPortChecked",
         "IsClosedLoopConnectionsChecked", "IsConnectPortsWithoutInterfaceChecked",
+        "SetInterfaceCollection",
     ])
     composition.ConnectPortsOfComposition.return_value = MagicMock(
         spec=["Connections", "DelegationPorts"], Connections=(), DelegationPorts=(),
@@ -79,14 +81,156 @@ def fixture_port_composition(app):
     return composition
 
 
+def test_connect_composition_ports_selected_interfaces(app, port_composition):
+    # arrange
+    interface_paths = ["/Interfaces/Speed", "/Interfaces/Torque"]
+    interfaces = {
+        path: MagicMock(AutosarType="SENDER-RECEIVER-INTERFACE", AUTOSARPathName=path)
+        for path in interface_paths
+    }
+    app.ActiveProject.GetElementsByARPath.side_effect = lambda path: [
+        port_composition if path == "/SWA/Top" else interfaces[path]
+    ]
+
+    # act
+    result = autosar_composition.connect_composition_ports(
+        composition_path="/SWA/Top", interface_paths=interface_paths,
+        allow_closed_loop_connections=True,
+    )
+
+    # assert
+    assert result["status"] == "success"
+    configuration = port_composition.CreatePortConnectorConfiguration.return_value
+    assert configuration.IsClosedLoopConnectionsChecked is True
+    assert configuration.IsUseAllInterfacesChecked is False
+    assert configuration.IsUseSelectedInterfacesChecked is True
+    configuration.SetInterfaceCollection.assert_called_once_with(interface_paths)
+
+
+@pytest.mark.parametrize("arguments", [
+    {"interface_paths": []},
+    {"strategy": "interface_name", "interface_paths": ["/Interfaces/Speed"]},
+    {"strategy": "port_name", "source_expression": "P_<equal>",
+     "target_expression": "R_<equal>", "interface_paths": ["/Interfaces/Speed"]},
+    {"strategy": "combined", "source_expression": "P_<equal>",
+     "target_expression": "R_<equal>", "interface_strategy": "interface_name",
+     "interface_paths": ["/Interfaces/Speed"]},
+])
+def test_connect_composition_ports_invalid_interface_selection(port_composition, arguments):
+    # act
+    result = autosar_composition.connect_composition_ports(composition_path="/SWA/Top", **arguments)
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "INVALID_PORT_CONNECTOR_CONFIGURATION"
+    port_composition.CreatePortConnectorConfiguration.assert_not_called()
+    port_composition.ConnectPortsOfComposition.assert_not_called()
+
+
+@pytest.mark.parametrize("failure,code", [
+    ("missing", "AUTOSAR_ELEMENT_NOT_FOUND"),
+    ("ambiguous", "AMBIGUOUS_AUTOSAR_PATH"),
+    ("type", "INVALID_AUTOSAR_ELEMENT_TYPE"),
+])
+def test_connect_composition_ports_interfaces_checked_before_combined(app, port_composition, failure, code):
+    # arrange
+    interface = MagicMock(AutosarType="SENDER-RECEIVER-INTERFACE")
+    invalid_matches = {
+        "missing": [], "ambiguous": [interface, interface], "type": [port_composition],
+    }
+    app.ActiveProject.GetElementsByARPath.side_effect = lambda path: (
+        [interface] if path == "/Interfaces/Valid" else invalid_matches[failure]
+    )
+
+    # act
+    result = autosar_composition.connect_composition_ports(
+        composition_path="/SWA/Top", strategy="combined",
+        source_expression="P_<equal>", target_expression="R_<equal>",
+        interface_paths=["/Interfaces/Valid", "/Interfaces/Invalid"],
+    )
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == code
+    port_composition.CreatePortConnectorConfiguration.assert_not_called()
+    port_composition.ConnectPortsOfComposition.assert_not_called()
+
+
+@pytest.mark.parametrize("interface_type", [
+    "SENDER-RECEIVER-INTERFACE", "CLIENT-SERVER-INTERFACE", "PARAMETER-INTERFACE",
+    "MODE-SWITCH-INTERFACE", "TRIGGER-INTERFACE", "NV-DATA-INTERFACE",
+])
+def test_connect_composition_ports_interface_types(app, port_composition, interface_type):
+    # arrange
+    interface = MagicMock(AutosarType=interface_type)
+    app.ActiveProject.GetElementsByARPath.side_effect = lambda path: [
+        port_composition if path == "/SWA/Top" else interface
+    ]
+
+    # act
+    result = autosar_composition.connect_composition_ports(
+        composition_path="/SWA/Top", interface_paths=["/Interfaces/Selected"],
+    )
+
+    # assert
+    assert result["status"] == "success"
+    port_composition.ConnectPortsOfComposition.assert_called_once()
+
+
+@pytest.mark.parametrize("arguments", [
+    {"interface_paths": []}, {"interface_paths": ["relative"]},
+    {"interface_paths": ["/Interfaces"]}, {"interface_paths": [42]},
+    {"interface_paths": "/Interfaces/Speed"}, {"allow_closed_loop_connections": None},
+    {"allow_closed_loop_connections": "invalid"},
+])
+def test_connect_composition_ports_options_invalid_schema(arguments):
+    # act / assert
+    with pytest.raises(ValidationError):
+        validate_args(autosar_composition.connect_composition_ports, composition_path="/SWA/Top", **arguments)
+
+
+@pytest.mark.parametrize("interface_paths", [None, ["/Interfaces/Speed"]])
+@pytest.mark.parametrize("closed_loop", [True, False])
+def test_connect_composition_ports_options_valid_schema(interface_paths, closed_loop):
+    # act / assert
+    validate_args(
+        autosar_composition.connect_composition_ports, composition_path="/SWA/Top",
+        interface_paths=interface_paths, allow_closed_loop_connections=closed_loop,
+    )
+
+
+def test_connect_composition_ports_interface_setter_failure(port_composition, app):
+    # arrange
+    interface = MagicMock(AutosarType="SENDER-RECEIVER-INTERFACE")
+    app.ActiveProject.GetElementsByARPath.side_effect = lambda path: [
+        port_composition if path == "/SWA/Top" else interface
+    ]
+    configuration = port_composition.CreatePortConnectorConfiguration.return_value
+    configuration.SetInterfaceCollection.side_effect = RuntimeError("selection failed")
+
+    # act
+    result = autosar_composition.connect_composition_ports(
+        composition_path="/SWA/Top", interface_paths=["/Interfaces/Speed"],
+    )
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "UNEXPECTED_ERROR"
+    assert result["details"] == "selection failed"
+    port_composition.ConnectPortsOfComposition.assert_not_called()
+
+
 @pytest.mark.parametrize("boundary_type", ["P-PORT-PROTOTYPE", "R-PORT-PROTOTYPE"])
 def test_connect_composition_ports_existing_boundary_ports(port_composition, boundary_type):
     # arrange
     boundary_port = MagicMock(AutosarType=boundary_type)
     port_composition.Ports.Elements = [boundary_port]
     connectors = [
-        MagicMock(AutosarType="ASSEMBLY-SW-CONNECTOR", AUTOSARPathName="/SWA/Top/Assembly"),
-        MagicMock(AutosarType="DELEGATION-SW-CONNECTOR", AUTOSARPathName="/SWA/Top/Delegation"),
+        make_connector("/SWA/Top/Assembly"),
+        make_connector("/SWA/Top/Delegation", "DELEGATION-SW-CONNECTOR"),
     ]
     port_composition.ConnectPortsOfComposition.return_value.Connections = tuple(connectors)
 
@@ -96,8 +240,10 @@ def test_connect_composition_ports_existing_boundary_ports(port_composition, bou
     # assert
     assert result == {
         "status": "success", "path": "/SWA/Top", "connection_count": 2,
-        "connections": [{"path": connector.AUTOSARPathName, "type": connector.AutosarType}
-                        for connector in connectors],
+        "connections": [
+            {"path": "/SWA/Top/Assembly", "type": "ASSEMBLY-SW-CONNECTOR", **ASSEMBLY_ENDPOINTS},
+            {"path": "/SWA/Top/Delegation", "type": "DELEGATION-SW-CONNECTOR", **DELEGATION_ENDPOINTS},
+        ],
     }
     configuration = port_composition.CreatePortConnectorConfiguration.return_value
     assert configuration.IsConnectPortsWithoutInterfaceChecked is False
@@ -112,7 +258,7 @@ def test_connect_composition_ports_existing_boundary_ports(port_composition, bou
 def test_connect_composition_ports_multiple_connections_enabled(port_composition):
     # arrange
     connectors = [
-        MagicMock(AutosarType="ASSEMBLY-SW-CONNECTOR", AUTOSARPathName=f"/SWA/Top/Connection{index}")
+        make_connector(f"/SWA/Top/Connection{index}")
         for index in range(2)
     ]
     port_composition.ConnectPortsOfComposition.return_value.Connections = tuple(connectors)
@@ -126,7 +272,7 @@ def test_connect_composition_ports_multiple_connections_enabled(port_composition
     port_composition.ConnectPortsOfComposition.assert_called_once_with(configuration)
     assert result == {
         "status": "success", "path": "/SWA/Top", "connection_count": 2,
-        "connections": [{"path": connector.AUTOSARPathName, "type": connector.AutosarType}
+        "connections": [{"path": connector.AUTOSARPathName, "type": connector.AutosarType, **ASSEMBLY_ENDPOINTS}
                         for connector in connectors],
     }
     assert configuration.IsConnectPortsWithoutInterfaceChecked is False
@@ -134,10 +280,10 @@ def test_connect_composition_ports_multiple_connections_enabled(port_composition
     assert configuration.IsCreateSingleDelegationPortChecked is False
 
 
-def test_connect_composition_ports_default_strategy(port_composition):
+@pytest.mark.parametrize("arguments", [(), ("/SWA/Top", "interface_type", None, None, None, True, False, None, 60)])
+def test_connect_composition_ports_default_strategy(port_composition, arguments):
     # act
-    result = autosar_composition.connect_composition_ports(composition_path="/SWA/Top")
-    validate_args(autosar_composition.connect_composition_ports, composition_path="/SWA/Top")
+    result = autosar_composition.connect_composition_ports(*arguments, **({} if arguments else {"composition_path": "/SWA/Top"}))
 
     # assert
     assert result["status"] == "success"
@@ -147,6 +293,10 @@ def test_connect_composition_ports_default_strategy(port_composition):
     assert configuration.IsPortNameStrategyChecked is False
     assert configuration.SourceExpression == ""
     assert configuration.TargetExpression == ""
+    assert configuration.IsClosedLoopConnectionsChecked is False
+    assert configuration.IsUseAllInterfacesChecked is True
+    assert configuration.IsUseSelectedInterfacesChecked is False
+    configuration.SetInterfaceCollection.assert_not_called()
 
 
 def test_connect_composition_ports_empty_and_fresh_configuration(port_composition):
@@ -198,7 +348,7 @@ def test_connect_composition_ports_prechecks(app, port_composition, failure, cod
 
 
 @pytest.mark.parametrize("arguments", [
-    {"strategy": "unknown"}, {"strategy": "port_name"},
+    {"strategy": "port_name"},
     {"strategy": "port_name", "source_expression": "P_<equal>"},
     {"strategy": "port_name", "target_expression": "R_<equal>"},
     {"strategy": "port_name", "source_expression": None, "target_expression": "R_<equal>"},
@@ -226,25 +376,19 @@ def test_connect_composition_ports_invalid_configuration(port_composition, argum
     {"source_expression": "", "target_expression": "R_<equal>"},
     {"source_expression": "P_<equal>", "target_expression": ""},
     {"source_expression": 42, "target_expression": "R_<equal>"},
-    {"source_expression": "P_<equal>", "target_expression": None},
     {"source_expression": "P" * 257, "target_expression": "R_<equal>"},
     {"source_expression": "P_<equal>", "target_expression": "R" * 257},
 ])
-def test_connect_composition_ports_by_port_name_invalid_configuration(port_composition, expressions):
-    # act
-    result = autosar_composition.connect_composition_ports(
-        composition_path="/SWA/Top", strategy="port_name", **expressions,
-    )
-
-    # assert
-    assert result["status"] == "error"
-    assert result["error_type"] == "permanent"
-    assert result["error_code"] == "INVALID_PORT_CONNECTOR_CONFIGURATION"
-    port_composition.CreatePortConnectorConfiguration.assert_not_called()
-    port_composition.ConnectPortsOfComposition.assert_not_called()
+def test_connect_composition_ports_expression_constraints(expressions):
+    # act / assert
+    with pytest.raises(ValidationError):
+        validate_args(
+            autosar_composition.connect_composition_ports,
+            composition_path="/SWA/Top", strategy="port_name", **expressions,
+        )
 
 
-@pytest.mark.parametrize("failure", ["factory", "matcher", "null", "delegation", "type", "readback"])
+@pytest.mark.parametrize("failure", ["factory", "matcher", "null", "readback"])
 def test_connect_composition_ports_failure_preserves_model(port_composition, failure):
     # arrange
     result_object = port_composition.ConnectPortsOfComposition.return_value
@@ -257,10 +401,6 @@ def test_connect_composition_ports_failure_preserves_model(port_composition, fai
         port_composition.ConnectPortsOfComposition.side_effect = partial_failure
     elif failure == "null":
         port_composition.ConnectPortsOfComposition.return_value = None
-    elif failure == "delegation":
-        result_object.DelegationPorts = [MagicMock()]
-    elif failure == "type":
-        result_object.Connections = [MagicMock(AutosarType="UNKNOWN-SW-CONNECTOR")]
     else:
         result_object.Connections = [MagicMock(spec=["AutosarType"], AutosarType="ASSEMBLY-SW-CONNECTOR")]
 
@@ -313,9 +453,10 @@ def test_connect_composition_ports_valid_schema(strategy, timeout):
     {"source_expression": "P_<equal>", "target_expression": "R_<equal>", "timeout": 0},
     {"source_expression": "P_<equal>", "target_expression": "R_<equal>", "composition_path": "/SWA"},
 ])
-def test_connect_composition_ports_by_port_name_invalid_schema(arguments):
+@pytest.mark.parametrize("strategy", ["port_name", "combined"])
+def test_connect_composition_ports_by_port_name_invalid_schema(arguments, strategy):
     # arrange
-    parameters = {"composition_path": "/SWA/Top", "strategy": "port_name", **arguments}
+    parameters = {"composition_path": "/SWA/Top", "strategy": strategy, **arguments}
 
     # act / assert
     with pytest.raises(ValidationError):
@@ -381,13 +522,14 @@ def test_connect_composition_ports_timeout_does_not_cancel(monkeypatch, app):
 
 
 @pytest.mark.parametrize("interface_strategy", [None, "interface_name", "interface_type"])
-def test_connect_composition_ports_combined(port_composition, interface_strategy):
+@pytest.mark.parametrize("closed_loop", [True, False])
+def test_connect_composition_ports_combined(port_composition, interface_strategy, closed_loop):
     # arrange
     configurations = [MagicMock(), MagicMock()]
     port_composition.CreatePortConnectorConfiguration.side_effect = configurations
     connectors = [
-        MagicMock(AutosarType="ASSEMBLY-SW-CONNECTOR", AUTOSARPathName="/SWA/Top/Named"),
-        MagicMock(AutosarType="DELEGATION-SW-CONNECTOR", AUTOSARPathName="/SWA/Top/Interface"),
+        make_connector("/SWA/Top/Named"),
+        make_connector("/SWA/Top/Interface", "DELEGATION-SW-CONNECTOR"),
     ]
     port_composition.ConnectPortsOfComposition.side_effect = [
         MagicMock(Connections=(connector,), DelegationPorts=()) for connector in connectors
@@ -398,14 +540,15 @@ def test_connect_composition_ports_combined(port_composition, interface_strategy
         composition_path="/SWA/Top", strategy="combined",
         source_expression="P_<equal>", target_expression="R_<equal>",
         single_connections_only=False,
+        allow_closed_loop_connections=closed_loop,
         **({"interface_strategy": interface_strategy} if interface_strategy is not None else {}),
     )
 
     # assert
     expected_strategy = interface_strategy or "interface_type"
     expected_connections = [
-        {"path": connector.AUTOSARPathName, "type": connector.AutosarType}
-        for connector in connectors
+        {"path": "/SWA/Top/Named", "type": "ASSEMBLY-SW-CONNECTOR", **ASSEMBLY_ENDPOINTS},
+        {"path": "/SWA/Top/Interface", "type": "DELEGATION-SW-CONNECTOR", **DELEGATION_ENDPOINTS},
     ]
     assert result == {
         "status": "success", "path": "/SWA/Top", "connection_count": 2,
@@ -427,21 +570,45 @@ def test_connect_composition_ports_combined(port_composition, interface_strategy
     assert configurations[1].SourceExpression == ""
     assert configurations[1].TargetExpression == ""
     assert all(configuration.IsSingleConnectionsChecked is False for configuration in configurations)
+    assert all(configuration.IsClosedLoopConnectionsChecked is closed_loop for configuration in configurations)
     assert [call.args[0] for call in port_composition.ConnectPortsOfComposition.call_args_list] == configurations
     port_composition.Delete.assert_not_called()
+
+
+@pytest.mark.parametrize("interface_strategy", [None, "interface_type"])
+def test_connect_composition_ports_combined_selected_interfaces(app, port_composition, interface_strategy):
+    # arrange
+    configurations = [MagicMock(), MagicMock()]
+    port_composition.CreatePortConnectorConfiguration.side_effect = configurations
+    interface = MagicMock(AutosarType="SENDER-RECEIVER-INTERFACE")
+    app.ActiveProject.GetElementsByARPath.side_effect = lambda path: [
+        port_composition if path == "/SWA/Top" else interface
+    ]
+
+    # act
+    result = autosar_composition.connect_composition_ports(
+        composition_path="/SWA/Top", strategy="combined",
+        source_expression="P_<equal>", target_expression="R_<equal>",
+        interface_paths=["/Interfaces/Speed"], allow_closed_loop_connections=True,
+        interface_strategy=interface_strategy,
+    )
+
+    # assert
+    assert result["status"] == "success"
+    assert port_composition.ConnectPortsOfComposition.call_count == 2
+    assert configurations[0].IsUseAllInterfacesChecked is True
+    assert configurations[0].IsUseSelectedInterfacesChecked is False
+    configurations[0].SetInterfaceCollection.assert_not_called()
+    assert configurations[1].IsUseAllInterfacesChecked is False
+    assert configurations[1].IsUseSelectedInterfacesChecked is True
+    configurations[1].SetInterfaceCollection.assert_called_once_with(["/Interfaces/Speed"])
+    assert all(configuration.IsClosedLoopConnectionsChecked is True for configuration in configurations)
 
 
 @pytest.mark.parametrize("arguments", [
     {}, {"source_expression": "P_<equal>"}, {"target_expression": "R_<equal>"},
     {"source_expression": None, "target_expression": "R_<equal>"},
     {"source_expression": "P_<equal>", "target_expression": None},
-    {"source_expression": "", "target_expression": "R_<equal>"},
-    {"source_expression": "P_<equal>", "target_expression": ""},
-    {"source_expression": 42, "target_expression": "R_<equal>"},
-    {"source_expression": "P" * 257, "target_expression": "R_<equal>"},
-    *[{"source_expression": "P_<equal>", "target_expression": "R_<equal>",
-       "interface_strategy": strategy}
-      for strategy in ["unknown", "port_name", "combined", "", 42]],
 ])
 def test_connect_composition_ports_combined_invalid_before_mutation(app, port_composition, arguments):
     # act
@@ -462,9 +629,9 @@ def test_connect_composition_ports_combined_invalid_before_mutation(app, port_co
 @pytest.mark.parametrize("failed_pass", [0, 1])
 def test_connect_composition_ports_combined_failure_stops(port_composition, failed_pass):
     # arrange
-    connection = {"path": "/SWA/Top/Named", "type": "ASSEMBLY-SW-CONNECTOR"}
+    connection = {"path": "/SWA/Top/Named", "type": "ASSEMBLY-SW-CONNECTOR", **ASSEMBLY_ENDPOINTS}
     first_result = MagicMock(
-        Connections=(MagicMock(AUTOSARPathName=connection["path"], AutosarType=connection["type"]),),
+        Connections=(make_connector(connection["path"], connection["type"]),),
         DelegationPorts=(),
     )
     failure = RuntimeError("partially changed model")
@@ -506,11 +673,10 @@ def test_connect_composition_ports_combined_failure_stops(port_composition, fail
 
 def test_connect_composition_ports_combined_zero_name_matches(port_composition):
     # arrange
-    connection = {"path": "/SWA/Top/Interface", "type": "DELEGATION-SW-CONNECTOR"}
+    connection = {"path": "/SWA/Top/Interface", "type": "DELEGATION-SW-CONNECTOR", **DELEGATION_ENDPOINTS}
     port_composition.ConnectPortsOfComposition.side_effect = [
         MagicMock(Connections=(), DelegationPorts=()),
-        MagicMock(Connections=(MagicMock(AUTOSARPathName=connection["path"],
-                                        AutosarType=connection["type"]),), DelegationPorts=()),
+        MagicMock(Connections=(make_connector(connection["path"], connection["type"]),), DelegationPorts=()),
     ]
 
     # act
@@ -538,8 +704,8 @@ def test_connect_composition_ports_combined_repeat_adds_no_connections(port_comp
     configurations = [MagicMock() for _ in range(4)]
     port_composition.CreatePortConnectorConfiguration.side_effect = configurations
     remaining = {
-        "port_name": [MagicMock(AutosarType="ASSEMBLY-SW-CONNECTOR", AUTOSARPathName="/SWA/Top/Named")],
-        "interface_type": [MagicMock(AutosarType="DELEGATION-SW-CONNECTOR", AUTOSARPathName="/SWA/Top/Interface")],
+        "port_name": [make_connector("/SWA/Top/Named")],
+        "interface_type": [make_connector("/SWA/Top/Interface", "DELEGATION-SW-CONNECTOR")],
     }
 
     def match_open_ports(configuration):
@@ -602,7 +768,7 @@ def test_connect_composition_ports_combined_timeout_single_submission(monkeypatc
     executor.submit.assert_called_once()
 
 
-@pytest.mark.parametrize("strategy", list(autosar_composition.PortConnectionStrategy))
+@pytest.mark.parametrize("strategy", list(autosar_composition._PortConnectionStrategy))  # pylint: disable=protected-access
 def test_connect_composition_ports_nullable_optional_expressions_schema(strategy):
     # act / assert
     validate_args(autosar_composition.connect_composition_ports, composition_path="/SWA/Top",

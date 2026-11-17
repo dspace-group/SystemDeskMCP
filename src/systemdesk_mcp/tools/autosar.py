@@ -54,6 +54,8 @@ def import_autosar_file(
     Import an AUTOSAR file (.arxml) into the currently open SystemDesk project.
 
     Use validate_autosar to check the imported content for rule violations.
+    After successfully importing a composition, use connect_composition_ports
+    with its absolute AUTOSAR path as composition_path to match open ports.
     Importing the same file twice has no effect (idempotent).
 
     Preconditions: start_systemdesk must be called first; a project must be open;

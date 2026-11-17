@@ -14,6 +14,7 @@ from fastmcp.tools import FunctionTool
 
 import systemdesk_mcp.server as srv
 from systemdesk_mcp import runtime
+from tests.helpers import DELEGATION_ENDPOINTS, make_connector
 
 
 @pytest.mark.anyio
@@ -30,7 +31,7 @@ async def test_connect_composition_ports_mcp_workflow(app, boundary, matching_ar
     composition = MagicMock(AutosarType="COMPOSITION-SW-COMPONENT-TYPE", AUTOSARPathName="/SWA/Top")
     composition.Components.Elements = [MagicMock(ShortName="A", TypeTref=MagicMock(AUTOSARPathName="/SWA/A"))]
     composition.Ports.Elements = [MagicMock()] if boundary else []
-    connections = [MagicMock(AutosarType="DELEGATION-SW-CONNECTOR", AUTOSARPathName="/SWA/Top/Delegation")] if boundary else []
+    connections = [make_connector("/SWA/Top/Delegation", "DELEGATION-SW-CONNECTOR")] if boundary else []
     combined = matching_arguments.get("strategy") == "combined"
     configurations = [MagicMock() for _ in range(2 if combined else 1)]
     composition.CreatePortConnectorConfiguration.side_effect = configurations
@@ -61,7 +62,7 @@ async def test_connect_composition_ports_mcp_workflow(app, boundary, matching_ar
     )
     expected = {
         "status": "success", "path": "/SWA/Top", "connection_count": len(connections),
-        "connections": [{"path": connector.AUTOSARPathName, "type": connector.AutosarType}
+        "connections": [{"path": connector.AUTOSARPathName, "type": connector.AutosarType, **DELEGATION_ENDPOINTS}
                         for connector in connections],
     }
     interface_strategy = matching_arguments.get("interface_strategy", "interface_type")
@@ -189,10 +190,20 @@ async def test_connect_composition_ports_schema_optional_nullable_fields():
 
     # assert
     assert tool.parameters["required"] == ["composition_path"]
-    for name in ["source_expression", "target_expression", "interface_strategy"]:
+    for name in ["source_expression", "target_expression", "interface_strategy", "interface_paths"]:
         field = tool.parameters["properties"][name]
         assert field["default"] is None
         assert {"type": "null"} in field["anyOf"]
+    closed_loop = tool.parameters["properties"]["allow_closed_loop_connections"]
+    assert closed_loop["type"] == "boolean"
+    assert closed_loop["default"] is False
+    interfaces = next(
+        branch for branch in tool.parameters["properties"]["interface_paths"]["anyOf"]
+        if branch["type"] == "array"
+    )
+    assert interfaces["minItems"] == 1
+    assert interfaces["items"]["type"] == "string"
+    assert interfaces["items"]["pattern"]
 
 
 @pytest.mark.anyio
