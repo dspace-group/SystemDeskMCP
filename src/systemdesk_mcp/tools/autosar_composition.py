@@ -190,7 +190,7 @@ def connect_composition_ports(  # pylint: disable=too-many-arguments,too-many-po
         min_length=1,
         description=(
             "Interfaces to use for interface_type matching; omit to use all. "
-            "For combined, applies only to its interface_type pass. Example: ['/Interfaces/Speed']"
+            "For combined, applies only to its interface_type pass. Example: [\"/Interfaces/Speed\"]"
         ),
     )] = None,
     timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument # used by @on_com_thread
