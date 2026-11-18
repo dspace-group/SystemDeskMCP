@@ -64,8 +64,9 @@ Recommended flow:
 10. `configure_rte_interventions(vecu_name=None, intervention_points=None, access="dap", enable=True, timeout=240)` (optional; create intervention points and services)
 11. `generate_vecu_bsw(vecu_name=None, timeout=240)` (pass the `vecu_name` returned by `get_or_create_vecu`; may be omitted if the project contains exactly one V-ECU)
 12. `export_vecu_fmu(vecu_name=None, target_directory=None, timeout=600)`
-13. `close_project(save_project=True)` (optional, only to close the project)
-14. `close_systemdesk(save_project=True)` (optional, only to quit SystemDesk)
+13. `save_project()` (optional, saves the project and keeps it open)
+14. `close_project(save_project=True)` (optional, only to close the project)
+15. `close_systemdesk(save_project=True)` (optional, only to quit SystemDesk)
 
 Important:
 
@@ -103,6 +104,7 @@ smoke test skills (`smoke-test-*`) in [.github/skills/](.github/skills/).
 - `close_systemdesk(save_project=True)`
 - `create_project(project_path, project_name)`
 - `open_project(project_file, timeout=60)`
+- `save_project()`
 - `close_project(save_project=True)`
 - `import_autosar_file(file_path, timeout=60)`
 - `create_composition(composition_path, component_paths)`
