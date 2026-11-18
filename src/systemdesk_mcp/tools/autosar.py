@@ -54,7 +54,8 @@ def import_autosar_file(
     Import an AUTOSAR file (.arxml) into the currently open SystemDesk project.
 
     Use validate_autosar to check the imported content for rule violations.
-    Importing the same file twice has no effect (idempotent).
+    Importing the same file twice has no effect if the file content has not changed (idempotent).
+    Importing the same file twice updates the project if the file has changed content.
 
     Preconditions: start_systemdesk must be called first; a project must be open;
     file_path must point to an existing .arxml file.
