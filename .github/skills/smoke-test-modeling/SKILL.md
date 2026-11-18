@@ -28,17 +28,18 @@ Use the SystemDesk MCP Server to verify that SystemDesk can be started, used for
        - `/SWA/Compositions/SmokeComposition` has two warnings for unconnected receiver elements `B.RPort.E1` and `B.RPort.E2`.
        - `/SWA/RootComposition` has a warning for the missing ComSpec init value of unconnected receiver element `B.RPort1.E1`.
        - `/SWA/Compositions/SmokeComposition` has a warning for the missing ComSpec init value of unconnected receiver element `B.RPort1.E1`.
-5. Use the tools provided by the SystemDesk MCP server to connect open ports in the composition created in step 3 `/SWA/Compositions/SmokeComposition`. It is only allowed to use the inteface types and only one connection can be created for each open port.
+5. After validation, use the tools provided by the SystemDesk MCP server to get the status of SystemDesk and whether a project is opened. The expected results are:
+6. Use the tools provided by the SystemDesk MCP server to connect open ports in the composition created in step 3 `/SWA/Compositions/SmokeComposition`. It is only allowed to use the inteface types and only one connection can be created for each open port.
    The following results are expected:
    - `status="success"`.
    - `connection_count=2` and exactly two entries in `connections`, which connecting A.PPort to B.RPort1 and A.PPort1 to B.RPort.
    - Do not require fixed connector names, because SystemDesk generates them.
-6. After connecting ports, use the tools provided by the SystemDesk MCP server to get the status of SystemDesk and whether a project is opened. The expected results are:
+7. After connecting ports, use the tools provided by the SystemDesk MCP server to get the status of SystemDesk and whether a project is opened. The expected results are:
    - SystemDesk is running.
    - A project is opened.
    - The project is modified.
-7. Close SystemDesk.
-8. SystemDesk.exe should not be running after the test finishes. Allow a grace period for it to close properly.
+8. Close SystemDesk.
+9. SystemDesk.exe should not be running after the test finishes. Allow a grace period for it to close properly.
 
 Fail the test if any of the expected results are not met, or if SystemDesk.exe is running at the wrong times.
 
