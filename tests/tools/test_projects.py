@@ -234,3 +234,47 @@ def test_open_project_absolute_path_accepted_by_schema(project_file):
 def test_open_project_invalid_path_rejected_by_schema(project_file):
     with pytest.raises(ValidationError):
         validate_args(projects.open_project, project_file=project_file)
+
+
+def test_save_project_success(app):
+    # arrange
+    active_project = MagicMock()
+    active_project.Name = "MyProject"
+    app.ActiveProject = active_project
+
+    # act
+    result = projects.save_project()
+
+    # assert
+    assert result["status"] == "success"
+    assert result["project_name"] == "MyProject"
+    assert "saved successfully" in result["message"].lower()
+    active_project.Save.assert_called_once()
+    active_project.Close.assert_not_called()
+
+
+def test_save_project_no_project_open(app):
+    # arrange
+    app.ActiveProject = None
+
+    # act
+    result = projects.save_project()
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "NO_PROJECT_OPEN"
+
+
+def test_save_project_com_failure(app):
+    # arrange
+    app.ActiveProject.Save.side_effect = Exception("COM error")
+
+    # act
+    result = projects.save_project()
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "UNEXPECTED_ERROR"
+    assert result["details"] == "COM error"

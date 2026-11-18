@@ -16,7 +16,7 @@ from systemdesk_mcp.common import (
     success_response,
 )
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.runtime import get_app, logged, on_com_thread
+from systemdesk_mcp.runtime import get_active_project, get_app, logged, on_com_thread
 
 
 @mcp.tool(
@@ -58,7 +58,7 @@ def create_project(
     If a project with the same name already exists, it will be overwritten.
     Automatically closes any currently open project without saving before creating the new one,
     which can lead to data loss if the current project is not saved;
-    call close_project(save_project=true) first to keep changes.
+    call save_project first to keep changes.
 
     Precondition: start_systemdesk must be called first.
     Returns project_name and project_file path on success.
@@ -107,7 +107,7 @@ def create_project(
 @logged
 @on_com_thread
 def close_project(
-    save_project: Annotated[bool, Field(
+    save_project: Annotated[bool, Field(  # pylint: disable=redefined-outer-name  # public parameter name
         description="If true, saves the project before closing it. Example: true",
     )] = True,
 ) -> dict[str, Any]:
@@ -187,7 +187,7 @@ def open_project(
 
     Automatically closes any currently open project without saving before opening,
     which can lead to data loss if the current project is not saved;
-    call close_project(save_project=true) first to keep changes.
+    call save_project first to keep changes.
     If project_file is already open, this is a no-op that returns success
     without reloading, so unsaved changes are kept.
 
@@ -237,6 +237,54 @@ def open_project(
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return error_response(
             f"Failed to open project '{project_file}'.",
+            error_type="permanent",
+            error_code=ErrorCode.UNEXPECTED_ERROR,
+            details=str(exc),
+        )
+
+
+@mcp.tool(
+    title="Save Project",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    output_schema=None
+)
+@logged
+@on_com_thread
+def save_project() -> dict[str, Any]:
+    """
+    Save the currently open SystemDesk project to its project file.
+
+    The project stays open.
+
+    Preconditions: start_systemdesk must be called first; a project must be open.
+    Returns project_name on success.
+
+    Failure codes (error_type / error_code: condition):
+    - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
+    - permanent / NO_PROJECT_OPEN: no project is open
+    - permanent / UNEXPECTED_ERROR: save call failed
+    """
+    try:
+        project = get_active_project()
+        project_name = project.Name
+
+        project.Save()
+
+        return success_response({
+            "project_name": project_name,
+            "message": f"Project '{project_name}' saved successfully.",
+        })
+
+    except PermanentError as exc:
+        return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        return error_response(
+            "Failed to save the project.",
             error_type="permanent",
             error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),

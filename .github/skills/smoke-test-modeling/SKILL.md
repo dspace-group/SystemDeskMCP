@@ -35,8 +35,11 @@ Use the SystemDesk MCP Server to verify that SystemDesk can be started, used for
    - SystemDesk is running.
    - A project is opened.
    - The project is modified.
-7. Close SystemDesk.
-8. SystemDesk.exe should not be running after the test finishes. Allow a grace period for it to close properly.
+7. Save the project. Afterwards, get the status of SystemDesk again. The expected results are:
+   - A project is opened.
+   - The project is not modified.
+8. Close SystemDesk.
+9. SystemDesk.exe should not be running after the test finishes. Allow a grace period for it to close properly.
 
 Fail the test if any of the expected results are not met, or if SystemDesk.exe is running at the wrong times.
 
