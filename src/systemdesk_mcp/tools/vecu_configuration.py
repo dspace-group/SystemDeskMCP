@@ -510,7 +510,7 @@ def configure_runnable_mapping(  # pylint: disable=too-many-locals
     Existing tasks with the same name are updated (priority; period if given) and existing mappings
     of the given events are moved to the given task and position; nothing else is deleted.
     Runs SystemDesk's 'Update Rte Configuration' before mapping. Repeating the call with the same
-    arguments leaves the configuration unchanged. Changes are not saved; use close_project(save_project=true).
+    arguments leaves the configuration unchanged. Changes are not saved; use save_project.
 
     Preconditions: start_systemdesk must be called first; a project with a V-ECU must be open.
     vecu_name may be omitted only if the project contains exactly one V-ECU.
@@ -722,7 +722,7 @@ def configure_rte_interventions(  # pylint: disable=too-many-locals
     not affect which points are created: with enable=false, the points selected by
     intervention_points (all possible points if omitted) are still created, and existing points and
     services are kept. To only switch code generation off, pass enable=false and intervention_points=[].
-    Changes are not saved; use close_project(save_project=true).
+    Changes are not saved; use save_project.
 
     Preconditions: start_systemdesk must be called first; a project with a V-ECU must be open.
     vecu_name may be omitted only if the project contains exactly one V-ECU.
