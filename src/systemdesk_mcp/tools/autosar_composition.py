@@ -128,17 +128,22 @@ _MAX_EXPRESSION_LENGTH = 256
 
 
 class CommonNamePatternOptions(BaseModel):
-    """SystemDesk common name patterns for provided and required ports."""
+    """SystemDesk common name patterns (regular expressions) for provided and required port names.
+
+    Macros: <SWC> is the software component name, <Interface> the interface name, and
+    <equal> a part that must be identical in both port names. Syntax is not validated:
+    malformed or non-matching patterns can succeed with zero connections.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     pport_expression: str = Field(
         min_length=1, max_length=_MAX_EXPRESSION_LENGTH,
-        description="Provided-port pattern. Macros: <SWC>, <Interface>, <equal>. Example: 'P_<equal>'",
+        description="Provided-port name pattern. Example: 'P_<equal>'",
     )
     rport_expression: str = Field(
         min_length=1, max_length=_MAX_EXPRESSION_LENGTH,
-        description="Required-port pattern. Macros: <SWC>, <Interface>, <equal>. Example: 'R_<equal>'",
+        description="Required-port name pattern. Example: 'R_<equal>'",
     )
 
 
@@ -151,7 +156,8 @@ class ConnectionOptions(BaseModel):
         default=True,
         description=(
             "True restricts matching to ports with exactly one possible connection. "
-            "False includes single and multiple connections, subject to SystemDesk rules. Example: False"
+            "False includes single and multiple connections, subject to SystemDesk rules; "
+            "to get both, call once with False. Example: False"
         ),
     )
     allow_closed_loop_connections: bool = Field(
@@ -179,8 +185,11 @@ def connect_composition_ports(  # pylint: disable=dangerous-default-value,too-ma
     matching_strategies: Annotated[list[MatchingStrategy], Field(
         min_length=1,
         description=(
-            "Nonempty selection of matching strategies; order has no significance and duplicates are rejected. "
-            "All selected flags are enabled in one configuration and one matching call. "
+            "Strategies combined in one matching pass; a port must satisfy all selected strategies. "
+            "common_name_pattern: port names match common_name_pattern_options. "
+            "common_interface_names: port interfaces have the same name. "
+            "common_interface_types: port interfaces have the same type. "
+            "Order is irrelevant; duplicates are rejected. "
             'Example: ["common_name_pattern", "common_interface_types"]'
         ),
     )],
@@ -192,64 +201,33 @@ def connect_composition_ports(  # pylint: disable=dangerous-default-value,too-ma
     )] = None,
     interface_paths: Annotated[list[AutosarElementPath], Field(
         description=(
-            "Empty list means all interfaces. Nonempty lists require common_interface_types. "
+            "Port interfaces to restrict common_interface_types matching to; requires common_interface_types. "
+            "Empty list means all interfaces. "
             'Example: ["/Interfaces/Speed"]'
         ),
     )] = [],
     connection_options: Annotated[ConnectionOptions | None, Field(
         description=(
-            "Omit to use single_connections_only=True and allow_closed_loop_connections=False. "
+            "Omit to use the defaults. "
             'Example: {"single_connections_only": false, "allow_closed_loop_connections": false}'
         ),
     )] = None,
     timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument # used by @on_com_thread
-        description="Maximum seconds to wait; timed-out work continues. Example: 60",
+        description="Maximum number of seconds to wait for the operation to complete. Example: 60",
     )] = 60,
 ) -> dict[str, Any]:
     """Automatically connect compatible ports within an existing AUTOSAR composition.
 
     Preconditions: start_systemdesk must be called first; a project must be open.
 
-    Use after creating or importing a composition to match open ports. After a
-    successful create_composition call, pass its returned 'path' as composition_path.
-    Do not connect if creation failed.
-
-    Connects ports between component instances using assembly connectors and links
-    component ports to existing composition boundary ports using delegation
-    connectors. Creates connections only; does not create new ports.
-
-    matching_strategies is a required nonempty selection of common_name_pattern,
-    common_interface_names, and common_interface_types. Order has no significance;
-    duplicates are rejected. All selected flags are enabled together in one
-    configuration and one ConnectPortsOfComposition call, not sequential passes.
-    SystemDesk requires ports to fulfill all selected filters to qualify for connection.
-
-    connection_options.single_connections_only=False includes single and multiple connections,
-    subject to SystemDesk rules. When both are required, call once with False;
-    no preceding call with True is needed. The default True restricts matching
-    to ports with exactly one possible connection.
-
-    common_name_pattern requires common_name_pattern_options with pport_expression
-    and rport_expression; otherwise omit that object. Nonempty interface_paths
-    requires common_interface_types; an empty list means all interfaces and is
-    accepted with every selection. All arguments and interface paths are checked
-    before configuring connections. Both nested objects reject unknown fields.
-    Omit connection_options to use its defaults.
-    Expressions are SystemDesk common name patterns (regular expressions), with
-    <SWC> as software component name, <Interface> as interface name, and <equal> which specifies
-    a part that has to be identical in both port names. Syntax is not
-    validated: malformed or non-matching patterns can succeed with zero connections.
-    New port creation and connections without interfaces are disabled.
+    Creates assembly connectors between component instances and delegation connectors
+    to existing composition boundary ports. Never creates ports or connects ports
+    without interfaces. All inputs are checked before the model is changed.
     Returns path, connection_count and connections, alongside status. Each connection
     includes path, type, provider and requester. Endpoints contain component and port
     prototype names; component is null for a composition boundary endpoint.
-    The timeout covers the entire operation; timed-out work continues on the COM worker.
-    No matches is success. Does not save, validate, retry, or roll back the model.
-    Repeating a successful call with the same inputs and an unchanged model
-    connects no additional ports and returns connection_count=0.
-    If creating connections or reading the results fails, some connections may
-    already exist. Changes are not undone; inspect the composition before retrying.
-    Validate and save separately after connecting ports.
+    No matches is success; repeating a call on an unchanged model returns
+    connection_count=0. Does not save, validate, or roll back the model.
 
     Failure codes (error_type / error_code: condition):
     - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
@@ -259,7 +237,8 @@ def connect_composition_ports(  # pylint: disable=dangerous-default-value,too-ma
     - permanent / INVALID_AUTOSAR_ELEMENT_TYPE: element is not a composition or port interface
     - permanent / INVALID_PORT_CONNECTOR_CONFIGURATION: unsupported strategy or invalid argument combination
     - transient / TIMEOUT: wait timed out; operation continues
-    - permanent / UNEXPECTED_ERROR: configuration, matching, or result readback failed
+    - permanent / UNEXPECTED_ERROR: configuration, matching, or result readback failed;
+      connections may already exist, inspect before retrying
     """
     try:
         project = get_active_project()
