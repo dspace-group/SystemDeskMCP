@@ -13,6 +13,7 @@ Use the SystemDesk MCP Server to perform an end-to-end smoke test by importing t
 * Do NOT inspect the files in this workspace, only rely on the information provided in this prompt and by the MCP server.
 * Do NOT read the repository memory or state from previous sessions. Fail the run, if it happens.
 * Do NOT write to the repository memory. Fail the run and delete the created memory, if it happens.
+* Relative file paths should be used with respect to this skill file.
 
 # Instructions
 
