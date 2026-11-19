@@ -78,23 +78,12 @@ def import_autosar_file(
                 "Provide an absolute path to an existing .arxml file.",
                 error_code=ErrorCode.FILE_NOT_FOUND)
 
-        import_export_files = active_project.ImportExportFiles
-        import_export_file = import_export_files.Item(file_path)
-        if import_export_file is None:
-            import_export_file = import_export_files.Add(file_path)
-        import_export_file.AddNewElementsToConfiguration = True
-        import_export_file.ExportCatalog = True
-        import_export_file.ImportCatalog = True
-        import_export_file.ExportDiagrams = True
-        import_export_file.ImportDiagrams = True
-        import_export_file.ImportAllElements = True
-        import_export_file.ShowImportDialog = False
+        autosar_project_file = active_project.AutosarProjectFiles.GetOrAdd(file_path)
 
-        # Now import the file. Runs on the dedicated COM apartment thread;
-        # the timeout is enforced by the @on_com_thread decorator.
-        result = import_export_file.Import()
+        # Runs on the dedicated COM apartment thread; the timeout is enforced by @on_com_thread.
+        result = active_project.Serializer.ReadAutosarProjectFiles([autosar_project_file])
         if not result:
-            import_export_file.Delete()
+            autosar_project_file.Delete()
 
             return error_response(
                 f"Failed to import AUTOSAR file '{file_path}'.",
@@ -124,7 +113,7 @@ def import_autosar_file(
 def _get_import_autosar_file_error_details() -> str:
     app = get_app()
     last_message = app.Messages.Elements[-1]
-    if last_message.MessageIdentifier != 'Info(93,600,17)': # ID of "Preparing import" message, stable across SystemDesk versions
+    if last_message.MessageIdentifier != 'Info(93,600,124)': # ID of "Preparing to read AUTOSAR project files" message, stable across SystemDesk versions
         return "Unknown error"
 
     details = '\n'.join(_dump_message(last_message))
