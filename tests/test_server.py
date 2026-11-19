@@ -4,6 +4,7 @@
 import inspect
 import json
 import typing
+from itertools import combinations
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,28 +18,24 @@ from systemdesk_mcp import runtime
 from tests.helpers import DELEGATION_ENDPOINTS, make_connector
 
 
+MATCHING_STRATEGIES = ("common_name_pattern", "common_interface_names", "common_interface_types")
+MATCHING_SELECTIONS = [
+    list(selection) for size in range(1, 4) for selection in combinations(MATCHING_STRATEGIES, size)
+]
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("boundary", [False, True])
-@pytest.mark.parametrize("matching_arguments", [
-    {}, {"strategy": "interface_type"},
-    {"strategy": "combined", "source_expression": "P_<equal>", "target_expression": "R_<equal>"},
-    {"strategy": "combined", "source_expression": "P_<equal>", "target_expression": "R_<equal>",
-     "interface_strategy": "interface_name"},
-])
-async def test_connect_composition_ports_mcp_workflow(app, boundary, matching_arguments):
+@pytest.mark.parametrize("strategies", MATCHING_SELECTIONS)
+@pytest.mark.parametrize("reverse", [False, True])
+async def test_connect_composition_ports_mcp_workflow(app, boundary, strategies, reverse):
     # arrange
     component = MagicMock(AutosarType="APPLICATION-SW-COMPONENT-TYPE")
     composition = MagicMock(AutosarType="COMPOSITION-SW-COMPONENT-TYPE", AUTOSARPathName="/SWA/Top")
     composition.Components.Elements = [MagicMock(ShortName="A", TypeTref=MagicMock(AUTOSARPathName="/SWA/A"))]
     composition.Ports.Elements = [MagicMock()] if boundary else []
     connections = [make_connector("/SWA/Top/Delegation", "DELEGATION-SW-CONNECTOR")] if boundary else []
-    combined = matching_arguments.get("strategy") == "combined"
-    configurations = [MagicMock() for _ in range(2 if combined else 1)]
-    composition.CreatePortConnectorConfiguration.side_effect = configurations
-    composition.ConnectPortsOfComposition.side_effect = [
-        *([MagicMock(Connections=(), DelegationPorts=())] if combined else []),
-        MagicMock(Connections=connections, DelegationPorts=()),
-    ]
+    composition.ConnectPortsOfComposition.return_value = MagicMock(Connections=connections)
     package = MagicMock(AutosarType="AR-PACKAGE")
     package.Elements.AddNewCompositionSwComponentType.return_value = composition
     elements = {"/SWA": package, "/SWA/A": component}
@@ -53,110 +50,158 @@ async def test_connect_composition_ports_mcp_workflow(app, boundary, matching_ar
     elements[created["path"]] = composition
     app.ActiveProject.GetElementsByARPath.reset_mock()
     connected = await srv.mcp.call_tool("connect_composition_ports", {
-        "composition_path": created["path"], **matching_arguments,
+        "composition_path": created["path"],
+        "matching_strategies": strategies[::-1] if reverse else strategies,
+        "common_name_pattern_options": {
+            "pport_expression": "P_<equal>", "rport_expression": "R_<equal>",
+        } if "common_name_pattern" in strategies else None,
+        "connection_options": {"single_connections_only": False, "allow_closed_loop_connections": True},
     })
 
     # assert
-    assert [entry.args for entry in app.ActiveProject.GetElementsByARPath.call_args_list] == (
-        [(created["path"],)] * (2 if combined else 1)
-    )
+    app.ActiveProject.GetElementsByARPath.assert_called_once_with(created["path"])
     expected = {
         "status": "success", "path": "/SWA/Top", "connection_count": len(connections),
         "connections": [{"path": connector.AUTOSARPathName, "type": connector.AutosarType, **DELEGATION_ENDPOINTS}
                         for connector in connections],
     }
-    interface_strategy = matching_arguments.get("interface_strategy", "interface_type")
-    if combined:
-        expected["passes"] = [
-            {"strategy": "port_name", "status": "success", "path": "/SWA/Top",
-             "connection_count": 0, "connections": []},
-            {"strategy": interface_strategy, **expected.copy()},
-        ]
-        assert configurations[0].IsPortNameStrategyChecked is True
-        assert configurations[0].SourceExpression == "P_<equal>"
-        assert configurations[0].TargetExpression == "R_<equal>"
     assert json.loads(connected.content[0].text) == expected
-    assert [entry.args[0] for entry in composition.ConnectPortsOfComposition.call_args_list] == configurations
-    assert configurations[-1].IsInterfaceTypeStrategyChecked == (interface_strategy == "interface_type")
-    assert configurations[-1].IsInterfaceNameStrategyChecked == (interface_strategy == "interface_name")
-    assert configurations[-1].IsPortNameStrategyChecked is False
-    for configuration in configurations:
-        assert configuration.IsConnectPortsWithoutInterfaceChecked is False
-        assert configuration.IsCreateDelegationPortsChecked is False
-        assert configuration.IsCreateSingleDelegationPortChecked is False
+    configuration = composition.CreatePortConnectorConfiguration.return_value
+    composition.CreatePortConnectorConfiguration.assert_called_once_with()
+    composition.ConnectPortsOfComposition.assert_called_once_with(configuration)
+    assert configuration.IsInterfaceTypeStrategyChecked == ("common_interface_types" in strategies)
+    assert configuration.IsInterfaceNameStrategyChecked == ("common_interface_names" in strategies)
+    assert configuration.IsPortNameStrategyChecked == ("common_name_pattern" in strategies)
+    assert configuration.SourceExpression == ("P_<equal>" if "common_name_pattern" in strategies else "")
+    assert configuration.TargetExpression == ("R_<equal>" if "common_name_pattern" in strategies else "")
+    assert configuration.IsSingleConnectionsChecked is False
+    assert configuration.IsClosedLoopConnectionsChecked is True
+    assert configuration.IsConnectPortsWithoutInterfaceChecked is False
+    assert configuration.IsCreateDelegationPortsChecked is False
+    assert configuration.IsCreateSingleDelegationPortChecked is False
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("arguments", [
-    {"strategy": "unknown"}, {"strategy": None},
+    {"matching_strategies": "common_interface_types"}, {"matching_strategies": None},
+    {"matching_strategies": []}, {"matching_strategies": ["unknown"]},
+    {"matching_strategies": [None]}, {"matching_strategies": [42]},
     {"composition_path": "/SWA"}, {"timeout": 0}, {"timeout": 3601},
-    {"strategy": "port_name", "source_expression": "", "target_expression": "R_<equal>"},
-    {"strategy": "port_name", "source_expression": "P_<equal>", "target_expression": ""},
-    {"source_expression": 42}, {"target_expression": 42},
-    {"source_expression": "P" * 257}, {"target_expression": "R" * 257},
-    {"strategy": "combined", "interface_strategy": "unknown"},
-    {"strategy": "combined", "interface_strategy": ""},
-    {"strategy": "combined", "interface_strategy": "port_name"},
-    {"strategy": "combined", "interface_strategy": "combined"},
+    {"interface_paths": None}, {"interface_paths": ["relative"]},
+    {"common_name_pattern_options": {}},
+    {"common_name_pattern_options": {"pport_expression": "P"}},
+    {"common_name_pattern_options": {"rport_expression": "R"}},
+    {"common_name_pattern_options": {"pport_expression": "P", "rport_expression": "R", "unknown": True}},
+    {"connection_options": {"unknown": True}},
 ])
 async def test_connect_composition_ports_mcp_rejects_invalid_schema(app, arguments):
     # act / assert
     with pytest.raises(FastMCPValidationError):
         await srv.mcp.call_tool("connect_composition_ports", {
-            "composition_path": "/SWA/Top", **arguments,
+            "composition_path": "/SWA/Top", "matching_strategies": ["common_interface_types"], **arguments,
         })
     assert not app.mock_calls
 
 
 @pytest.mark.anyio
-async def test_connect_composition_ports_by_port_name_mcp_workflow(app):
+@pytest.mark.parametrize("field", ["pport_expression", "rport_expression"])
+@pytest.mark.parametrize("value", ["", None, 42, False, "X" * 257])
+async def test_connect_composition_ports_mcp_rejects_invalid_expressions(app, field, value):
+    # act / assert
+    with pytest.raises(FastMCPValidationError):
+        await srv.mcp.call_tool("connect_composition_ports", {
+            "composition_path": "/SWA/Top", "matching_strategies": ["common_name_pattern"],
+            "common_name_pattern_options": {"pport_expression": "P", "rport_expression": "R", field: value},
+        })
+    assert not app.mock_calls
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("field", ["single_connections_only", "allow_closed_loop_connections"])
+@pytest.mark.parametrize("value", [None, "invalid", [], {}, 2])
+async def test_connect_composition_ports_mcp_rejects_invalid_booleans(app, field, value):
+    # act / assert
+    with pytest.raises(FastMCPValidationError):
+        await srv.mcp.call_tool("connect_composition_ports", {
+            "composition_path": "/SWA/Top", "matching_strategies": ["common_interface_types"],
+            "connection_options": {field: value},
+        })
+    assert not app.mock_calls
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("connection_options", [None, {}])
+async def test_connect_composition_ports_mcp_default_options(app, connection_options):
     # arrange
     composition = MagicMock(AutosarType="COMPOSITION-SW-COMPONENT-TYPE", AUTOSARPathName="/SWA/Top")
-    composition.ConnectPortsOfComposition.return_value = MagicMock(Connections=(), DelegationPorts=())
+    composition.ConnectPortsOfComposition.return_value = MagicMock(Connections=())
     app.ActiveProject.GetElementsByARPath.return_value = [composition]
 
     # act
-    result = await srv.mcp.call_tool("connect_composition_ports", {
-        "composition_path": "/SWA/Top", "strategy": "port_name",
-        "source_expression": "P_<equal>", "target_expression": "R_<equal>",
+    response = await srv.mcp.call_tool("connect_composition_ports", {
+        "composition_path": "/SWA/Top", "matching_strategies": ["common_interface_names"],
+        "interface_paths": [], "connection_options": connection_options,
     })
 
     # assert
-    assert json.loads(result.content[0].text) == {
+    assert json.loads(response.content[0].text) == {
         "status": "success", "path": "/SWA/Top", "connection_count": 0, "connections": [],
     }
     configuration = composition.CreatePortConnectorConfiguration.return_value
-    assert configuration.IsPortNameStrategyChecked is True
-    assert configuration.IsInterfaceNameStrategyChecked is False
-    assert configuration.IsInterfaceTypeStrategyChecked is False
-    assert configuration.SourceExpression == "P_<equal>"
-    assert configuration.TargetExpression == "R_<equal>"
+    configuration.SetInterfaceCollection.assert_not_called()
+    assert configuration.IsSingleConnectionsChecked is True
+    assert configuration.IsClosedLoopConnectionsChecked is False
+    assert configuration.IsUseAllInterfacesChecked is True
+    assert configuration.IsUseSelectedInterfacesChecked is False
+    composition.CreatePortConnectorConfiguration.assert_called_once_with()
+    composition.ConnectPortsOfComposition.assert_called_once_with(configuration)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("missing", ["composition_path", "matching_strategies"])
+async def test_connect_composition_ports_mcp_requires_arguments(app, missing):
+    # arrange
+    arguments = {"composition_path": "/SWA/Top", "matching_strategies": ["common_interface_types"]}
+    del arguments[missing]
+
+    # act / assert
+    with pytest.raises(FastMCPValidationError):
+        await srv.mcp.call_tool("connect_composition_ports", arguments)
+    assert not app.mock_calls
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("field,value", [
+    ("strategy", "interface_type"), ("strategy", "combined"),
+    ("source_expression", "P_<equal>"), ("target_expression", "R_<equal>"),
+    ("interface_strategy", "interface_name"), ("single_connections_only", False),
+    ("allow_closed_loop_connections", True),
+])
+async def test_connect_composition_ports_mcp_rejects_retired_flat_parameters(app, field, value):
+    # act / assert
+    with pytest.raises(FastMCPValidationError):
+        await srv.mcp.call_tool("connect_composition_ports", {
+            "composition_path": "/SWA/Top", "matching_strategies": ["common_interface_types"], field: value,
+        })
+    assert not app.mock_calls
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("arguments", [
-    {"strategy": "port_name"},
-    {"strategy": "port_name", "source_expression": "P_<equal>"},
-    {"strategy": "port_name", "target_expression": "R_<equal>"},
-    {"strategy": "port_name", "source_expression": None, "target_expression": "R_<equal>"},
-    {"strategy": "port_name", "source_expression": "P_<equal>", "target_expression": None},
-    {"source_expression": "P_<equal>"}, {"target_expression": "R_<equal>"},
-    {"source_expression": "P_<equal>", "target_expression": "R_<equal>"},
-    {"strategy": "interface_name", "source_expression": "P_<equal>"},
-    {"interface_strategy": "interface_type"},
-    {"strategy": "interface_name", "interface_strategy": "interface_name"},
-    {"strategy": "port_name", "source_expression": "P_<equal>",
-     "target_expression": "R_<equal>", "interface_strategy": "interface_type"},
-    {"strategy": "combined"},
-    {"strategy": "combined", "source_expression": "P_<equal>"},
-    {"strategy": "combined", "target_expression": "R_<equal>"},
-    {"strategy": "combined", "source_expression": None, "target_expression": "R_<equal>"},
-    {"strategy": "combined", "source_expression": "P_<equal>", "target_expression": None},
+    {"matching_strategies": ["common_name_pattern"]},
+    {"matching_strategies": ["common_name_pattern"], "common_name_pattern_options": None},
+    {"matching_strategies": list(MATCHING_STRATEGIES)},
+    {"matching_strategies": ["common_interface_types", "common_interface_types"]},
+    {"common_name_pattern_options": {"pport_expression": "P", "rport_expression": "R"}},
+    {"matching_strategies": ["common_interface_names"], "interface_paths": ["/Interfaces/Speed"]},
+    {"matching_strategies": ["common_name_pattern", "common_interface_names"],
+     "common_name_pattern_options": {"pport_expression": "P", "rport_expression": "R"},
+     "interface_paths": ["/Interfaces/Speed"]},
 ])
 async def test_connect_composition_ports_mcp_rejects_invalid_combinations(app, arguments):
     # act
     response = await srv.mcp.call_tool("connect_composition_ports", {
-        "composition_path": "/SWA/Top", **arguments,
+        "composition_path": "/SWA/Top", "matching_strategies": ["common_interface_types"], **arguments,
     })
 
     # assert
@@ -183,27 +228,57 @@ async def test_connect_composition_ports_only_unified_tool_registered():
 
 
 @pytest.mark.anyio
-async def test_connect_composition_ports_schema_optional_nullable_fields():
+async def test_connect_composition_ports_schema_nested_options_and_defaults():
     # act
     tools = await _registered_function_tools(srv.mcp)
     tool = next(tool for tool in tools if tool.name == "connect_composition_ports")
 
     # assert
-    assert tool.parameters["required"] == ["composition_path"]
-    for name in ["source_expression", "target_expression", "interface_strategy", "interface_paths"]:
-        field = tool.parameters["properties"][name]
+    schema = tool.parameters
+    properties = schema["properties"]
+    assert schema["required"] == ["composition_path", "matching_strategies"]
+    assert schema["additionalProperties"] is False
+    assert set(properties) == {
+        "composition_path", "matching_strategies", "common_name_pattern_options",
+        "interface_paths", "connection_options", "timeout",
+    }
+    strategies = properties["matching_strategies"]
+    assert strategies["type"] == "array"
+    assert strategies["minItems"] == 1
+    assert set(strategies["items"]["enum"]) == set(MATCHING_STRATEGIES)
+    assert not strategies.get("uniqueItems", False)
+    assert not {"if", "then", "else", "dependentRequired", "dependentSchemas"} & schema.keys()
+    for name in ["common_name_pattern_options", "connection_options"]:
+        field = properties[name]
         assert field["default"] is None
         assert {"type": "null"} in field["anyOf"]
-    closed_loop = tool.parameters["properties"]["allow_closed_loop_connections"]
-    assert closed_loop["type"] == "boolean"
-    assert closed_loop["default"] is False
-    interfaces = next(
-        branch for branch in tool.parameters["properties"]["interface_paths"]["anyOf"]
-        if branch["type"] == "array"
-    )
-    assert interfaces["minItems"] == 1
+        object_schema = next(branch for branch in field["anyOf"] if branch.get("type") != "null")
+        if "$ref" in object_schema:
+            object_schema = schema["$defs"][object_schema["$ref"].rsplit("/", 1)[1]]
+        assert object_schema["type"] == "object"
+        assert object_schema["additionalProperties"] is False
+        if name == "common_name_pattern_options":
+            assert object_schema["required"] == ["pport_expression", "rport_expression"]
+            assert set(object_schema["properties"]) == {"pport_expression", "rport_expression"}
+            for expression in object_schema["properties"].values():
+                assert expression["type"] == "string"
+                assert expression["minLength"] == 1
+                assert expression["maxLength"] == 256
+        else:
+            assert not object_schema.get("required")
+            assert set(object_schema["properties"]) == {"single_connections_only", "allow_closed_loop_connections"}
+            for field_name, default in [("single_connections_only", True), ("allow_closed_loop_connections", False)]:
+                assert object_schema["properties"][field_name]["type"] == "boolean"
+                assert object_schema["properties"][field_name]["default"] is default
+    interfaces = properties["interface_paths"]
+    assert interfaces["type"] == "array"
+    assert interfaces["default"] == []
+    assert interfaces.get("minItems", 0) == 0
     assert interfaces["items"]["type"] == "string"
     assert interfaces["items"]["pattern"]
+    assert properties["timeout"]["default"] == 60
+    assert properties["timeout"]["minimum"] == 1
+    assert properties["timeout"]["maximum"] == 3600
 
 
 @pytest.mark.anyio

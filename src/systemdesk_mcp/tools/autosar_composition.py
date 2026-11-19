@@ -1,9 +1,8 @@
 """AUTOSAR composition creation and port connections."""
 
-from enum import Enum
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from systemdesk_mcp.common import (
     ErrorCode,
@@ -121,24 +120,44 @@ def create_composition(
         )
 
 
-class _PortConnectionStrategy(str, Enum):
-    """Matching strategy for automatic connections between existing ports."""
-
-    PORT_NAME = "port_name"
-    INTERFACE_NAME = "interface_name"
-    INTERFACE_TYPE = "interface_type"
-    COMBINED = "combined"
-
-
-class _InterfaceMatchStrategy(str, Enum):
-    """Match ports by interface name or type in the second pass of combined matching."""
-
-    INTERFACE_NAME = "interface_name"
-    INTERFACE_TYPE = "interface_type"
+MatchingStrategy = Literal["common_name_pattern", "common_interface_names", "common_interface_types"]
 
 
 # Chosen limit, not a documented SystemDesk one.
 _MAX_EXPRESSION_LENGTH = 256
+
+
+class CommonNamePatternOptions(BaseModel):
+    """SystemDesk common name patterns for provided and required ports."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pport_expression: str = Field(
+        min_length=1, max_length=_MAX_EXPRESSION_LENGTH,
+        description="Provided-port pattern. Macros: <SWC>, <Interface>, <equal>. Example: 'P_<equal>'",
+    )
+    rport_expression: str = Field(
+        min_length=1, max_length=_MAX_EXPRESSION_LENGTH,
+        description="Required-port pattern. Macros: <SWC>, <Interface>, <equal>. Example: 'R_<equal>'",
+    )
+
+
+class ConnectionOptions(BaseModel):
+    """Connection selection and closed-loop matching options."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    single_connections_only: bool = Field(
+        default=True,
+        description=(
+            "True restricts matching to ports with exactly one possible connection. "
+            "False includes single and multiple connections, subject to SystemDesk rules. Example: False"
+        ),
+    )
+    allow_closed_loop_connections: bool = Field(
+        default=False,
+        description="Allow closed-loop connections during matching. Example: True",
+    )
 
 
 @mcp.tool(
@@ -153,44 +172,34 @@ _MAX_EXPRESSION_LENGTH = 256
 )
 @logged
 @on_com_thread
-def connect_composition_ports(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def connect_composition_ports(  # pylint: disable=dangerous-default-value,too-many-arguments,too-many-positional-arguments
     composition_path: Annotated[AutosarElementPath, Field(
         description="Absolute AUTOSAR path of an existing composition. Example: '/SWA/Top'",
     )],
-    strategy: Annotated[_PortConnectionStrategy, Field(
-        description="Matching strategy: interface_type (default), interface_name, port_name, or combined (name first, then interface). Example: 'combined'.",
-    )] = _PortConnectionStrategy.INTERFACE_TYPE,
-    source_expression: Annotated[str | None, Field(
-        min_length=1, max_length=_MAX_EXPRESSION_LENGTH,
-        description=(
-            "Provided-port name pattern; required for port_name and combined, otherwise omit. "
-            "Macros: <SWC>, <Interface>, <equal>. Example: 'P_<equal>'."
-        ),
-    )] = None,
-    target_expression: Annotated[str | None, Field(
-        min_length=1, max_length=_MAX_EXPRESSION_LENGTH,
-        description=(
-            "Required-port name pattern; required for port_name and combined, otherwise omit. "
-            "Macros: <SWC>, <Interface>, <equal>. Example: 'R_<equal>'."
-        ),
-    )] = None,
-    interface_strategy: Annotated[_InterfaceMatchStrategy | None, Field(
-        description="Only for combined: interface_type (default) or interface_name for the second pass; otherwise omit. Example: 'interface_name'.",
-    )] = None,
-    single_connections_only: Annotated[bool, Field(
-        description=(
-            "True restricts matching to ports with exactly one possible connection; "
-            "False allows multiple connections per port, subject to SystemDesk rules. Example: False"
-        ),
-    )] = True,
-    allow_closed_loop_connections: Annotated[bool, Field(
-        description="Allow closed-loop connections during matching. Example: True",
-    )] = False,
-    interface_paths: Annotated[list[AutosarElementPath] | None, Field(
+    matching_strategies: Annotated[list[MatchingStrategy], Field(
         min_length=1,
         description=(
-            "Interfaces to use for interface_type matching; omit to use all. "
-            "For combined, applies only to its interface_type pass. Example: [\"/Interfaces/Speed\"]"
+            "Nonempty selection of matching strategies; order has no significance and duplicates are rejected. "
+            "All selected flags are enabled in one configuration and one matching call. "
+            'Example: ["common_name_pattern", "common_interface_types"]'
+        ),
+    )],
+    common_name_pattern_options: Annotated[CommonNamePatternOptions | None, Field(
+        description=(
+            "Required only with common_name_pattern; otherwise omit. "
+            'Example: {"pport_expression": "P_<equal>", "rport_expression": "R_<equal>"}'
+        ),
+    )] = None,
+    interface_paths: Annotated[list[AutosarElementPath], Field(
+        description=(
+            "Empty list means all interfaces. Nonempty lists require common_interface_types. "
+            'Example: ["/Interfaces/Speed"]'
+        ),
+    )] = [],
+    connection_options: Annotated[ConnectionOptions | None, Field(
+        description=(
+            "Omit to use single_connections_only=True and allow_closed_loop_connections=False. "
+            'Example: {"single_connections_only": false, "allow_closed_loop_connections": false}'
         ),
     )] = None,
     timeout: Annotated[TimeoutSeconds, Field(  # pylint: disable=unused-argument # used by @on_com_thread
@@ -209,20 +218,23 @@ def connect_composition_ports(  # pylint: disable=too-many-arguments,too-many-po
     component ports to existing composition boundary ports using delegation
     connectors. Creates connections only; does not create new ports.
 
-    Ports are matched by port-name patterns, interface name, or interface type.
-    The default strategy is interface_type. The combined strategy first matches
-    by port-name patterns, then uses the selected interface strategy to connect
-    remaining open ports.
+    matching_strategies is a required nonempty selection of common_name_pattern,
+    common_interface_names, and common_interface_types. Order has no significance;
+    duplicates are rejected. All selected flags are enabled together in one
+    configuration and one ConnectPortsOfComposition call, not sequential passes.
+    SystemDesk requires ports to fulfill all selected filters to qualify for connection.
 
-    port_name requires source_expression and target_expression; interface strategies
-    accept neither expression. combined requires both expressions and runs port_name
-    first, then interface_strategy (default interface_type) on remaining open ports.
-    This is sequential matching, not a requirement that both strategies agree.
-    interface_strategy is accepted only for combined. All arguments are checked
-    before either pass mutates the model. interface_paths optionally restricts
-    interface_type matching to existing port interfaces; omit to use all interfaces.
-    It is accepted only for interface_type or combined with an interface_type
-    second pass, and does not restrict combined's initial port_name pass.
+    connection_options.single_connections_only=False includes single and multiple connections,
+    subject to SystemDesk rules. When both are required, call once with False;
+    no preceding call with True is needed. The default True restricts matching
+    to ports with exactly one possible connection.
+
+    common_name_pattern requires common_name_pattern_options with pport_expression
+    and rport_expression; otherwise omit that object. Nonempty interface_paths
+    requires common_interface_types; an empty list means all interfaces and is
+    accepted with every selection. All arguments and interface paths are checked
+    before configuring connections. Both nested objects reject unknown fields.
+    Omit connection_options to use its defaults.
     Expressions are SystemDesk common name patterns (regular expressions), with
     <SWC> as software component name, <Interface> as interface name, and <equal> which specifies
     a part that has to be identical in both port names. Syntax is not
@@ -231,11 +243,7 @@ def connect_composition_ports(  # pylint: disable=too-many-arguments,too-many-po
     Returns path, connection_count and connections, alongside status. Each connection
     includes path, type, provider and requester. Endpoints contain component and port
     prototype names; component is null for a composition boundary endpoint.
-    combined also returns passes, each with strategy and its result. On failure,
-    stops without retrying or rolling back; completed passes and their known
-    connections are included, but the failed pass may have made unreported changes.
-    The timeout covers the entire operation; timed-out work, including subsequent
-    passes, continues on the COM worker.
+    The timeout covers the entire operation; timed-out work continues on the COM worker.
     No matches is success. Does not save, validate, retry, or roll back the model.
     Repeating a successful call with the same inputs and an unchanged model
     connects no additional ports and returns connection_count=0.
@@ -253,70 +261,23 @@ def connect_composition_ports(  # pylint: disable=too-many-arguments,too-many-po
     - transient / TIMEOUT: wait timed out; operation continues
     - permanent / UNEXPECTED_ERROR: configuration, matching, or result readback failed
     """
-    selected_interface = _InterfaceMatchStrategy.INTERFACE_TYPE if interface_strategy is None else interface_strategy
     try:
         project = get_active_project()
-        if strategy == _PortConnectionStrategy.COMBINED:
-            _check_port_connection_arguments(_PortConnectionStrategy.PORT_NAME, source_expression, target_expression)
-        else:
-            _check_port_connection_arguments(strategy, source_expression, target_expression)
-            if interface_strategy is not None:
-                raise PermanentError(
-                    "interface_strategy is accepted only for combined matching.",
-                    error_code=ErrorCode.INVALID_PORT_CONNECTOR_CONFIGURATION,
-                )
-        if interface_paths is not None:
-            effective_strategy = selected_interface if strategy == _PortConnectionStrategy.COMBINED else strategy
-            if effective_strategy != _PortConnectionStrategy.INTERFACE_TYPE or not interface_paths:
-                raise PermanentError(
-                    "interface_paths requires a nonempty list and interface_type matching.",
-                    error_code=ErrorCode.INVALID_PORT_CONNECTOR_CONFIGURATION,
-                )
+        _check_port_connection_arguments(matching_strategies, common_name_pattern_options, interface_paths)
+        if interface_paths:
             _check_interface_paths(project, interface_paths)
     except PermanentError as exc:
         return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
 
-    if strategy != _PortConnectionStrategy.COMBINED:
-        return _connect_ports(
-            composition_path, strategy, source_expression, target_expression,
-            single_connections_only, allow_closed_loop_connections, interface_paths,
-        )
-
-    return _connect_ports_combined(
-        composition_path, selected_interface, source_expression, target_expression,
-        single_connections_only, allow_closed_loop_connections, interface_paths,
+    return _connect_ports(
+        composition_path, matching_strategies, common_name_pattern_options,
+        interface_paths, connection_options or ConnectionOptions(),
     )
 
 
-def _connect_ports_combined(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-    composition_path, selected_interface, source_expression, target_expression,
-    single_connections_only, allow_closed_loop_connections, interface_paths,
-):
-    passes = []
-    connections = []
-    for pass_strategy, source, target in (
-        (_PortConnectionStrategy.PORT_NAME, source_expression, target_expression),
-        (selected_interface, None, None),
-    ):
-        result = _connect_ports(
-            composition_path, pass_strategy, source, target,
-            single_connections_only, allow_closed_loop_connections,
-            interface_paths if pass_strategy == _PortConnectionStrategy.INTERFACE_TYPE else None,
-        )
-        passes.append({"strategy": pass_strategy, **result})
-        if result["status"] == "error":
-            return {**result, "path": composition_path, "connection_count": len(connections),
-                    "connections": connections, "passes": passes}
-        connections.extend(result["connections"])
-    return success_response({
-        "path": result["path"], "connection_count": len(connections),
-        "connections": connections, "passes": passes,
-    })
-
-
-def _connect_ports(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-    composition_path, strategy, source_expression, target_expression,
-    single_connections_only, allow_closed_loop_connections, interface_paths,
+def _connect_ports(
+    composition_path, matching_strategies, common_name_pattern_options,
+    interface_paths, connection_options,
 ):
     matching_started = False
     try:
@@ -327,19 +288,19 @@ def _connect_ports(  # pylint: disable=too-many-arguments,too-many-positional-ar
                 error_code=ErrorCode.INVALID_AUTOSAR_ELEMENT_TYPE,
             )
         configuration = composition.CreatePortConnectorConfiguration()
-        configuration.IsPortNameStrategyChecked = strategy == _PortConnectionStrategy.PORT_NAME
-        configuration.IsInterfaceNameStrategyChecked = strategy == _PortConnectionStrategy.INTERFACE_NAME
-        configuration.IsInterfaceTypeStrategyChecked = strategy == _PortConnectionStrategy.INTERFACE_TYPE
-        configuration.SourceExpression = source_expression or ""
-        configuration.TargetExpression = target_expression or ""
-        configuration.IsSingleConnectionsChecked = single_connections_only
-        configuration.IsUseAllInterfacesChecked = interface_paths is None
-        configuration.IsUseSelectedInterfacesChecked = interface_paths is not None
-        if interface_paths is not None:
+        configuration.IsPortNameStrategyChecked = "common_name_pattern" in matching_strategies
+        configuration.IsInterfaceNameStrategyChecked = "common_interface_names" in matching_strategies
+        configuration.IsInterfaceTypeStrategyChecked = "common_interface_types" in matching_strategies
+        configuration.SourceExpression = common_name_pattern_options.pport_expression if common_name_pattern_options else ""
+        configuration.TargetExpression = common_name_pattern_options.rport_expression if common_name_pattern_options else ""
+        configuration.IsSingleConnectionsChecked = connection_options.single_connections_only
+        configuration.IsUseAllInterfacesChecked = not interface_paths
+        configuration.IsUseSelectedInterfacesChecked = bool(interface_paths)
+        if interface_paths:
             configuration.SetInterfaceCollection(interface_paths)
         configuration.IsCreateDelegationPortsChecked = False
         configuration.IsCreateSingleDelegationPortChecked = False
-        configuration.IsClosedLoopConnectionsChecked = allow_closed_loop_connections
+        configuration.IsClosedLoopConnectionsChecked = connection_options.allow_closed_loop_connections
         configuration.IsConnectPortsWithoutInterfaceChecked = False
 
         matching_started = True
@@ -401,14 +362,21 @@ def _check_interface_paths(project, interface_paths):
             )
 
 
-def _check_port_connection_arguments(strategy, source_expression, target_expression):
-    if strategy == _PortConnectionStrategy.PORT_NAME:
-        valid = source_expression is not None and target_expression is not None
-    else:
-        valid = source_expression is None and target_expression is None
-    if not valid:
+def _check_port_connection_arguments(matching_strategies, common_name_pattern_options, interface_paths):
+    if not matching_strategies or any(strategy not in {
+        "common_name_pattern", "common_interface_names", "common_interface_types",
+    } for strategy in matching_strategies) or len(set(matching_strategies)) != len(matching_strategies):
         raise PermanentError(
-            "port_name requires source_expression and target_expression; "
-            "interface_name and interface_type accept neither.",
+            "matching_strategies must be a nonempty selection of supported strategies without duplicates.",
+            error_code=ErrorCode.INVALID_PORT_CONNECTOR_CONFIGURATION,
+        )
+    if ("common_name_pattern" in matching_strategies) != (common_name_pattern_options is not None):
+        raise PermanentError(
+            "common_name_pattern requires common_name_pattern_options; otherwise omit that object.",
+            error_code=ErrorCode.INVALID_PORT_CONNECTOR_CONFIGURATION,
+        )
+    if interface_paths and "common_interface_types" not in matching_strategies:
+        raise PermanentError(
+            "Nonempty interface_paths requires common_interface_types matching.",
             error_code=ErrorCode.INVALID_PORT_CONNECTOR_CONFIGURATION,
         )

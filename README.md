@@ -57,7 +57,7 @@ Recommended flow:
 3. `import_autosar_file(file_path, timeout=60)`
 4. `create_composition(composition_path, component_paths)` (optional)
 5. `validate_autosar(output_format="markdown" | "json", timeout=120)`
-6. `connect_composition_ports(composition_path)` (optional)
+6. `connect_composition_ports(composition_path, matching_strategies=["common_interface_types"])` (optional)
 7. `get_or_create_vecu(vecu_name=None, reuse_existing_vecu=False, component_path=None, system_name=None, predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs (FMI 3.0)", auto_configure_and_generate=False, timeout=240)` (further optional V-ECU creation options are available)
 8. `get_vecu_configuration(vecu_name=None, include=None, timeout=120)` (optional; inspect runnable, task, and intervention-point names; `include` selects the lists to return, e.g. `["runnables", "os_tasks"]`)
 9. `configure_runnable_mapping(tasks=None, mappings=None, vecu_name=None, timeout=240)` (optional; configure OS tasks and runnable schedules)
@@ -106,7 +106,7 @@ smoke test skills (`smoke-test-*`) in [.github/skills/](.github/skills/).
 - `close_project(save_project=True)`
 - `import_autosar_file(file_path, timeout=60)`
 - `create_composition(composition_path, component_paths)`
-- `connect_composition_ports(composition_path, strategy="interface_type" | "interface_name" | "port_name" | "combined", source_expression=None, target_expression=None, interface_strategy=None, single_connections_only=True, allow_closed_loop_connections=False, interface_paths=None, timeout=60)`
+- `connect_composition_ports(composition_path, matching_strategies, common_name_pattern_options=None, interface_paths=[], connection_options=None, timeout=60)`
 - `validate_autosar(output_format="markdown" | "json", timeout=120)`
 - `get_or_create_vecu(vecu_name=None, reuse_existing_vecu=False, component_path=None, system_name=None, predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs (FMI 3.0)", generate_dap_for_atomic_ports=None, generate_dap_for_root_composition_ports=None, create_runnable_mapping=True, rte_calibration_support=None, rte_simulation_logging=None, rte_measurement_support=None, auto_configure_and_generate=False, timeout=240)`
 - `get_vecu_configuration(vecu_name=None, include=None, timeout=120)`
@@ -121,7 +121,7 @@ Add a new tool in the appropriate domain-specific module under `src/systemdesk_m
 
 Use the shared `mcp` instance from `mcp_app.py`, COM access, execution, and logging helpers from `runtime.py`, and errors, responses, and input constraints from `common.py`. Keep domain-specific helpers alongside their tools.
 
-Declare each input as a flat function parameter typed `Annotated[<type>, Field(...)]`: the type, constraints, and description (with an `Example:`) live in the `Field`, the default in the signature. This is the single definition; FastMCP derives the JSON schema (including `additionalProperties: false`) and validates calls from it. Constraints shared across tools are defined once as `Annotated` aliases (e.g. `TimeoutSeconds`) and combined with a tool-specific description. Tools without inputs take no parameters.
+Declare each input as a function parameter typed `Annotated[<type>, Field(...)]`: the type, constraints, and description (with an `Example:`) live in the `Field`, the default in the signature. Group related options in Pydantic models with `ConfigDict(extra="forbid")` when appropriate. This is the single definition; FastMCP derives the JSON schema (including `additionalProperties: false`) and validates calls from it. Constraints shared across tools are defined once as `Annotated` aliases (e.g. `TimeoutSeconds`) and combined with a tool-specific description. Tools without inputs take no parameters.
 
 ```python
 from typing import Annotated, Any
