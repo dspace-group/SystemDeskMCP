@@ -1,4 +1,4 @@
-"""AUTOSAR import, validation, and report formatting."""
+"""AUTOSAR import, export, validation, and report formatting."""
 
 import os
 from enum import Enum
@@ -89,7 +89,8 @@ def import_autosar_file(
                 f"Failed to import AUTOSAR file '{file_path}'.",
                 error_type="permanent",
                 error_code=ErrorCode.IMPORT_REJECTED,
-                details=_get_import_autosar_file_error_details(),
+                # ID of "Preparing to read AUTOSAR project files" message, stable across SystemDesk versions
+                details=_get_last_message_details('Info(93,600,124)'),
             )
 
         return success_response({
@@ -110,10 +111,10 @@ def import_autosar_file(
             details=str(exc),
         )
 
-def _get_import_autosar_file_error_details() -> str:
+def _get_last_message_details(message_identifier: str) -> str:
     app = get_app()
     last_message = app.Messages.Elements[-1]
-    if last_message.MessageIdentifier != 'Info(93,600,124)': # ID of "Preparing to read AUTOSAR project files" message, stable across SystemDesk versions
+    if last_message.MessageIdentifier != message_identifier:
         return "Unknown error"
 
     details = '\n'.join(_dump_message(last_message))
@@ -123,7 +124,8 @@ def _dump_message(message, indent=0) -> Iterable[str]:
     yield f'{" " * indent}[{message.Severity}] {message.MessageText}'
 
     for child in message.Children.Elements:
-        yield from _dump_message(child, indent=indent + 2)
+        if child.Severity != "Trace":
+            yield from _dump_message(child, indent=indent + 2)
 
 
 @mcp.tool(
@@ -272,3 +274,79 @@ def resolve_component(project, path):
             error_code=ErrorCode.INVALID_AUTOSAR_ELEMENT_TYPE,
         )
     return component
+
+
+@mcp.tool(
+    title="Export Imported AUTOSAR File",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    output_schema=None,
+)
+@logged
+@on_com_thread
+def export_imported_autosar_file(
+    file_path: Annotated[str, Field(
+        min_length=1,
+        pattern=ARXML_PATTERN,
+        description=(
+            "Absolute local or UNC path of an AUTOSAR file (.arxml) previously imported "
+            "with import_autosar_file. The file is overwritten in place. "
+            "Example: 'C:\\Projects\\MyECU\\SoftwareComponent.arxml'"
+        ),
+    )],
+) -> dict[str, Any]:
+    """
+    Write the current project content of a previously imported AUTOSAR file back to its path.
+
+    Overwrites the file at its original path, even if it is read-only; elements no longer in the
+    project are removed from it.
+    Only idempotent if the project content for the file has not changed between calls.
+
+    Preconditions: start_systemdesk must be called first; a project must be open;
+    file_path must have been imported with import_autosar_file.
+    Returns exported_file path and a confirmation message on success.
+
+    Failure codes (error_type / error_code: condition):
+    - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
+    - permanent / NO_PROJECT_OPEN: no project currently open
+    - permanent / INVALID_ARGUMENTS: file was not imported into the current project
+    - permanent / SYSTEMDESK_OPERATION_FAILED: SystemDesk failed to write the file (see details)
+    - permanent / UNEXPECTED_ERROR: export call failed
+    """
+    try:
+        project = get_active_project()
+
+        autosar_project_file = project.AutosarProjectFiles.Item(file_path)
+        if autosar_project_file is None:
+            raise PermanentError(
+                f"AUTOSAR file '{file_path}' was not imported into the current project. "
+                "Use import_autosar_file first.",
+                error_code=ErrorCode.INVALID_ARGUMENTS)
+
+        if not project.Serializer.WriteAutosarProjectFiles([autosar_project_file]):
+            return error_response(
+                f"Failed to export AUTOSAR file '{file_path}'.",
+                error_type="permanent",
+                error_code=ErrorCode.SYSTEMDESK_OPERATION_FAILED,
+                # ID of "Preparing to write AUTOSAR project files" message
+                details=_get_last_message_details('Info(93,600,14)'),
+            )
+
+        return success_response({
+            "exported_file": file_path,
+            "message": f"AUTOSAR file '{os.path.basename(file_path)}' exported successfully.",
+        })
+
+    except PermanentError as exc:
+        return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        return error_response(
+            f"Failed to export AUTOSAR file '{file_path}'.",
+            error_type="permanent",
+            error_code=ErrorCode.UNEXPECTED_ERROR,
+            details=str(exc),
+        )

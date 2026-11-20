@@ -237,7 +237,7 @@ def open_project(
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return error_response(
             f"Failed to open project '{project_file}'.",
-            error_type="permanent",
+            error_type="permanent",  # pylint: disable=duplicate-code # similar but not identical exception handling
             error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
