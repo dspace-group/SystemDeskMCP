@@ -104,6 +104,8 @@ smoke test skills (`smoke-test-*`) in [.github/skills/](.github/skills/).
 - `open_project(project_file, timeout=60)`
 - `close_project(save_project=True)`
 - `import_autosar_file(file_path, timeout=60)`
+- `export_imported_autosar_file(file_path)`
+- `export_project_to_autosar_file(file_path)`
 - `create_composition(composition_path, component_paths)`
 - `validate_autosar(output_format="markdown" | "json", timeout=120)`
 - `get_or_create_vecu(vecu_name=None, reuse_existing_vecu=False, component_path=None, system_name=None, predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs (FMI 3.0)", generate_dap_for_atomic_ports=None, generate_dap_for_root_composition_ports=None, create_runnable_mapping=True, rte_calibration_support=None, rte_simulation_logging=None, rte_measurement_support=None, auto_configure_and_generate=False, timeout=240)`

@@ -13,6 +13,7 @@ Use the SystemDesk MCP Server to verify that runnable mappings and RTE intervent
 * Do NOT inspect files in this workspace; only use the specified ARXML as an import input and rely on the MCP server for results.
 * Do NOT read repository memory or state from previous sessions. Fail the run if this happens.
 * Do NOT write to repository memory. Fail the run and delete the created memory if this happens.
+* Relative file paths should be used with respect to this skill file.
 
 # Instructions
 

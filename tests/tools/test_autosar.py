@@ -25,10 +25,9 @@ def test_import_autosar_file_success(app, tmp_path):
     arxml_file = tmp_path / "valid_model.arxml"
     arxml_file.write_text("<AUTOSAR/>")
     active_project = MagicMock()
-    import_export_file = MagicMock()
-    import_export_file.Import.return_value = True
-    active_project.ImportExportFiles.Item.return_value = None
-    active_project.ImportExportFiles.Add.return_value = import_export_file
+    autosar_project_file = MagicMock()
+    active_project.AutosarProjectFiles.GetOrAdd.return_value = autosar_project_file
+    active_project.Serializer.ReadAutosarProjectFiles.return_value = True
     app.ActiveProject = active_project
 
     # act
@@ -38,32 +37,9 @@ def test_import_autosar_file_success(app, tmp_path):
     assert result["status"] == "success"
     assert result["imported_file"] == str(arxml_file)
     assert "imported successfully" in result["message"].lower()
-    active_project.ImportExportFiles.Item.assert_called_once_with(str(arxml_file))
-    active_project.ImportExportFiles.Add.assert_called_once_with(str(arxml_file))
-    import_export_file.Import.assert_called_once()
-    import_export_file.Delete.assert_not_called()
-
-
-def test_import_autosar_file_reuses_existing_entry(app, tmp_path):
-    # arrange
-    arxml_file = tmp_path / "valid_model.arxml"
-    arxml_file.write_text("<AUTOSAR/>")
-    active_project = MagicMock()
-    import_export_file = MagicMock()
-    import_export_file.Import.return_value = True
-    active_project.ImportExportFiles.Item.return_value = import_export_file
-    app.ActiveProject = active_project
-
-    # act
-    result = autosar.import_autosar_file(file_path=str(arxml_file))
-
-    # assert
-    assert result["status"] == "success"
-    assert result["imported_file"] == str(arxml_file)
-    active_project.ImportExportFiles.Item.assert_called_once_with(str(arxml_file))
-    active_project.ImportExportFiles.Add.assert_not_called()
-    import_export_file.Import.assert_called_once()
-    import_export_file.Delete.assert_not_called()
+    active_project.AutosarProjectFiles.GetOrAdd.assert_called_once_with(str(arxml_file))
+    active_project.Serializer.ReadAutosarProjectFiles.assert_called_once_with([autosar_project_file])
+    autosar_project_file.Delete.assert_not_called()
 
 
 def test_import_autosar_no_project_open(app, tmp_path):
@@ -239,15 +215,14 @@ def test_import_autosar_file_schema_error(app, tmp_path):
     arxml_file = tmp_path / "invalid_model.arxml"
     arxml_file.write_text("<AUTOSAR><InvalidElement/></AUTOSAR>")
     active_project = MagicMock()
-    import_export_file = MagicMock()
-    import_export_file.Import.return_value = False
-    active_project.ImportExportFiles.Item.return_value = None
-    active_project.ImportExportFiles.Add.return_value = import_export_file
+    autosar_project_file = MagicMock()
+    active_project.AutosarProjectFiles.GetOrAdd.return_value = autosar_project_file
+    active_project.Serializer.ReadAutosarProjectFiles.return_value = False
     app.ActiveProject = active_project
 
     app.Messages.Elements = [MagicMock(), MagicMock()]
     msg = app.Messages.Elements[-1]
-    msg.MessageIdentifier = 'Info(93,600,17)'
+    msg.MessageIdentifier = 'Info(93,600,124)'
     msg.Severity = 'Info'
     msg.MessageText = 'Preparing'
     msg.Children.Elements = [MagicMock(), MagicMock()]
@@ -269,10 +244,32 @@ def test_import_autosar_file_schema_error(app, tmp_path):
     assert result["error_type"] == "permanent"
     assert result["error_code"] == "IMPORT_REJECTED"
     assert result["details"] == "[Info] Preparing\n  [Info] Validating\n    [Error] Invalid element\n  [Error] Import failed"
-    active_project.ImportExportFiles.Item.assert_called_once_with(str(arxml_file))
-    active_project.ImportExportFiles.Add.assert_called_once_with(str(arxml_file))
-    import_export_file.Import.assert_called_once()
-    import_export_file.Delete.assert_called_once()
+    active_project.AutosarProjectFiles.GetOrAdd.assert_called_once_with(str(arxml_file))
+    active_project.Serializer.ReadAutosarProjectFiles.assert_called_once_with([autosar_project_file])
+    autosar_project_file.Delete.assert_called_once()
+
+
+def test_import_autosar_file_error_details_skip_trace_messages(app, tmp_path):
+    # arrange
+    arxml_file = tmp_path / "invalid_model.arxml"
+    arxml_file.write_text("<AUTOSAR/>")
+    active_project = MagicMock()
+    active_project.Serializer.ReadAutosarProjectFiles.return_value = False
+    app.ActiveProject = active_project
+
+    trace = MagicMock(Severity='Trace', MessageText='Tracing')
+    error = MagicMock(Severity='Error', MessageText='Import failed')
+    error.Children.Elements = [trace]
+    msg = MagicMock(MessageIdentifier='Info(93,600,124)', Severity='Info', MessageText='Preparing')
+    msg.Children.Elements = [trace, error, trace]
+    app.Messages.Elements = [MagicMock(), msg]
+
+    # act
+    result = autosar.import_autosar_file(file_path=str(arxml_file))
+
+    # assert
+    assert result["error_code"] == "IMPORT_REJECTED"
+    assert result["details"] == "[Info] Preparing\n  [Error] Import failed"
 
 
 def test_import_autosar_wrong_extension_rejected_by_schema(tmp_path):
@@ -518,3 +515,171 @@ def test_create_composition_requires_nonempty_path_list(paths):
     # act / assert
     with pytest.raises(ValidationError):
         validate_args(autosar.create_composition, composition_path="/SWA/Top", component_paths=paths)
+
+
+def test_export_imported_autosar_file_success(app):
+    # arrange
+    file_path = "C:\\Projects\\model.arxml"
+    active_project = MagicMock()
+    autosar_project_file = MagicMock()
+    active_project.AutosarProjectFiles.Item.return_value = autosar_project_file
+    active_project.Serializer.WriteAutosarProjectFiles.return_value = True
+    app.ActiveProject = active_project
+
+    # act
+    result = autosar.export_imported_autosar_file(file_path=file_path)
+
+    # assert
+    assert result["status"] == "success"
+    assert result["exported_file"] == file_path
+    assert "exported successfully" in result["message"].lower()
+    active_project.AutosarProjectFiles.Item.assert_called_once_with(file_path)
+    active_project.Serializer.WriteAutosarProjectFiles.assert_called_once_with([autosar_project_file])
+
+
+def test_export_imported_autosar_file_not_imported(app):
+    # arrange
+    active_project = MagicMock()
+    active_project.AutosarProjectFiles.Item.return_value = None
+    app.ActiveProject = active_project
+
+    # act
+    result = autosar.export_imported_autosar_file(file_path="C:\\Projects\\model.arxml")
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "INVALID_ARGUMENTS"
+    active_project.Serializer.WriteAutosarProjectFiles.assert_not_called()
+
+
+def test_export_imported_autosar_file_write_failed(app):
+    # arrange
+    active_project = MagicMock()
+    active_project.Serializer.WriteAutosarProjectFiles.return_value = False
+    app.ActiveProject = active_project
+
+    msg = MagicMock()
+    msg.MessageIdentifier = 'Info(93,600,14)'
+    msg.Severity = 'Info'
+    msg.MessageText = 'Preparing'
+    msg.Children.Elements = [MagicMock()]
+    msg.Children.Elements[0].Severity = 'Error'
+    msg.Children.Elements[0].MessageText = 'Write failed'
+    msg.Children.Elements[0].Children.Elements = []
+    app.Messages.Elements = [MagicMock(), msg]
+
+    # act
+    result = autosar.export_imported_autosar_file(file_path="C:\\Projects\\model.arxml")
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "SYSTEMDESK_OPERATION_FAILED"
+    assert result["details"] == "[Info] Preparing\n  [Error] Write failed"
+
+
+def test_export_imported_autosar_file_unexpected_error(app):
+    # arrange
+    active_project = MagicMock()
+    active_project.Serializer.WriteAutosarProjectFiles.side_effect = RuntimeError("write crashed")
+    app.ActiveProject = active_project
+
+    # act
+    result = autosar.export_imported_autosar_file(file_path="C:\\Projects\\model.arxml")
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "UNEXPECTED_ERROR"
+    assert result["details"] == "write crashed"
+
+
+def test_export_imported_autosar_file_wrong_extension_rejected_by_schema():
+    with pytest.raises(ValidationError):
+        validate_args(autosar.export_imported_autosar_file, file_path="C:\\Projects\\file.xml")
+
+
+def test_export_project_to_autosar_file_success(app):
+    # arrange
+    file_path = "C:\\Projects\\project.arxml"
+    active_project = MagicMock()
+    packages = (MagicMock(), MagicMock())
+    active_project.RootAutosar.ArPackages.Elements = packages
+    settings = MagicMock()
+    active_project.Serializer.GetNewExportSettings.return_value = settings
+    active_project.Serializer.Export.return_value = True
+    app.ActiveProject = active_project
+
+    # act
+    result = autosar.export_project_to_autosar_file(file_path=file_path)
+
+    # assert
+    assert result["status"] == "success"
+    assert result["exported_file"] == file_path
+    assert "exported successfully" in result["message"].lower()
+    assert settings.FilePath == file_path
+    assert settings.ExportDiagrams is True
+    assert settings.ExportCatalog is True
+    settings.SetPackages.assert_called_once_with(list(packages))
+    active_project.Serializer.Export.assert_called_once_with(settings)
+
+
+def test_export_project_to_autosar_file_export_failed(app):
+    # arrange
+    active_project = MagicMock()
+    active_project.Serializer.Export.return_value = False
+    app.ActiveProject = active_project
+
+    msg = MagicMock()
+    msg.MessageIdentifier = 'Info(93,600,4)'
+    msg.Severity = 'Info'
+    msg.MessageText = 'Preparing'
+    msg.Children.Elements = [MagicMock()]
+    msg.Children.Elements[0].Severity = 'Error'
+    msg.Children.Elements[0].MessageText = 'Export failed'
+    msg.Children.Elements[0].Children.Elements = []
+    app.Messages.Elements = [MagicMock(), msg]
+
+    # act
+    result = autosar.export_project_to_autosar_file(file_path="C:\\Projects\\project.arxml")
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "SYSTEMDESK_OPERATION_FAILED"
+    assert result["details"] == "[Info] Preparing\n  [Error] Export failed"
+
+
+def test_export_project_to_autosar_file_unexpected_error(app):
+    # arrange
+    active_project = MagicMock()
+    active_project.Serializer.Export.side_effect = RuntimeError("export crashed")
+    app.ActiveProject = active_project
+
+    # act
+    result = autosar.export_project_to_autosar_file(file_path="C:\\Projects\\project.arxml")
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "UNEXPECTED_ERROR"
+    assert result["details"] == "export crashed"
+
+
+def test_export_project_to_autosar_file_no_project_open(app):
+    # arrange
+    app.ActiveProject = None
+
+    # act
+    result = autosar.export_project_to_autosar_file(file_path="C:\\Projects\\project.arxml")
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "NO_PROJECT_OPEN"
+
+
+def test_export_project_to_autosar_file_wrong_extension_rejected_by_schema():
+    with pytest.raises(ValidationError):
+        validate_args(autosar.export_project_to_autosar_file, file_path="C:\\Projects\\file.xml")
