@@ -246,7 +246,7 @@ def connect_composition_ports(  # pylint: disable=too-many-arguments,too-many-po
     - permanent / AUTOSAR_ELEMENT_NOT_FOUND: composition or interface path does not exist
     - permanent / AMBIGUOUS_AUTOSAR_PATH: path identifies multiple elements
     - permanent / INVALID_AUTOSAR_ELEMENT_TYPE: element is not a composition or port interface
-    - permanent / INVALID_PORT_CONNECTOR_CONFIGURATION: unsupported strategy or invalid argument combination
+    - permanent / INVALID_ARGUMENTS: unsupported strategy or invalid argument combination
     - transient / TIMEOUT: operation timed out
     - permanent / UNEXPECTED_ERROR: configuration, matching, or result readback failed;
       connections may already exist, inspect before retrying
@@ -358,16 +358,16 @@ def _check_port_connection_arguments(
     } for strategy in matching_strategies) or len(set(matching_strategies)) != len(matching_strategies):
         raise PermanentError(
             "matching_strategies must be a nonempty selection of supported strategies without duplicates.",
-            error_code=ErrorCode.INVALID_PORT_CONNECTOR_CONFIGURATION,
+            error_code=ErrorCode.INVALID_ARGUMENTS,
         )
     if ("common_name_pattern" in matching_strategies) != (common_name_pattern_options is not None):
         raise PermanentError(
             "common_name_pattern requires common_name_pattern_options; otherwise omit that object.",
-            error_code=ErrorCode.INVALID_PORT_CONNECTOR_CONFIGURATION,
+            error_code=ErrorCode.INVALID_ARGUMENTS,
         )
     if ("common_interface_types" in matching_strategies) != (common_interface_types_options is not None):
         raise PermanentError(
             "common_interface_types requires common_interface_types_options; otherwise omit that object. "
             "Pass an empty interface_paths list to match all interfaces.",
-            error_code=ErrorCode.INVALID_PORT_CONNECTOR_CONFIGURATION,
+            error_code=ErrorCode.INVALID_ARGUMENTS,
         )

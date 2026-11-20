@@ -243,7 +243,7 @@ def test_connect_composition_ports_invalid_configuration_before_mutation(app, po
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
-    assert result["error_code"] == "INVALID_PORT_CONNECTOR_CONFIGURATION"
+    assert result["error_code"] == "INVALID_ARGUMENTS"
     app.ActiveProject.GetElementsByARPath.assert_not_called()
     port_composition.CreatePortConnectorConfiguration.assert_not_called()
     port_composition.ConnectPortsOfComposition.assert_not_called()
@@ -261,7 +261,7 @@ def test_connect_composition_ports_duplicate_selections_rejected(app, port_compo
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
-    assert result["error_code"] == "INVALID_PORT_CONNECTOR_CONFIGURATION"
+    assert result["error_code"] == "INVALID_ARGUMENTS"
     app.ActiveProject.GetElementsByARPath.assert_not_called()
     port_composition.CreatePortConnectorConfiguration.assert_not_called()
     port_composition.ConnectPortsOfComposition.assert_not_called()
