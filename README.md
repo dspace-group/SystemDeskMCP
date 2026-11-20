@@ -107,6 +107,7 @@ smoke test skills (`smoke-test-*`) in [.github/skills/](.github/skills/).
 - `save_project()`
 - `close_project(save_project=True)`
 - `import_autosar_file(file_path, timeout=60)`
+- `export_imported_autosar_file(file_path)`
 - `create_composition(composition_path, component_paths)`
 - `connect_composition_ports(composition_path, matching_strategies, common_name_pattern_options=None, common_interface_types_options=None, connection_options=None, timeout=60)`
 - `validate_autosar(output_format="markdown" | "json", timeout=120)`

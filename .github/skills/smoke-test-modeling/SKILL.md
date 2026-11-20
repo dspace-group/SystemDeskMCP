@@ -18,8 +18,9 @@ Use the SystemDesk MCP Server to verify that SystemDesk can be started, used for
 
 1. Always clean up any created directories or files after the test execution, regardless of the test results.
 2. SystemDesk.exe should not be running before the test starts.
-3. Import `./assets/smoke-test.arxml` and create a composition at `/SWA/Compositions/SmokeComposition` containing `/SWA/A` and `/SWA/B`.
-4. Use the tools provided by the SystemDesk MCP server to validate the project.
+3. Copy `./assets/smoke-test.arxml` to %TEMP%, import the copy, and create a composition at `/Compositions/SmokeComposition` containing `/SWA/A` and `/SWA/B`.
+4. Export the imported copy. The export must succeed, and the copy must still contain `/SWA/A` and `/SWA/B` but not `SmokeComposition`. Check this by inspecting the exported file.
+5. Use the tools provided by the SystemDesk MCP server to validate the project.
    The following results are expected from the validation:
      - 1 Error
        - `/SWA/B/InternalBehavior/DataReceivedEvent` is missing the "DataIref".
@@ -27,20 +28,20 @@ Use the SystemDesk MCP Server to verify that SystemDesk can be started, used for
        - `/SWA/A/InternalBehavior/Runnable` is not triggered by any event.
        - `/SWA/RootComposition/AssemblySwConnector_022a6a18ca20b376e84badaf962bf0ac` is an incompatible connection.
        - `/SWA/RootComposition` has a warning for the missing ComSpec init value of unconnected receiver element `B.RPort1.E1`.
-       - `/SWA/Compositions/SmokeComposition` has three warnings for the missing ComSpec init value of unconnected receiver element `B.RPort1.E1`, `B.RPort.E1` and `B.RPort.E2`.
-5. Use the tools provided by the SystemDesk MCP server to connect open ports in the composition created in step 3 `/SWA/Compositions/SmokeComposition`. It is only allowed to use the interface types and only one connection can be created for each open port.
+       - `/Compositions/SmokeComposition` has three warnings for the missing ComSpec init value of unconnected receiver element `B.RPort1.E1`, `B.RPort.E1` and `B.RPort.E2`.
+6. Use the tools provided by the SystemDesk MCP server to connect open ports in the composition created in step 3 `/Compositions/SmokeComposition`. It is only allowed to use the interface types and only one connection can be created for each open port.
    The following results are expected:
    - `status="success"`.
    - `connection_count=2` and exactly two entries in `connections`, which connect A.PPort to B.RPort1 and A.PPort1 to B.RPort.
-6. After connecting ports, use the tools provided by the SystemDesk MCP server to get the status of SystemDesk and whether a project is opened. The expected results are:
+7. After connecting ports, use the tools provided by the SystemDesk MCP server to get the status of SystemDesk and whether a project is opened. The expected results are:
    - SystemDesk is running.
    - A project is opened.
    - The project is modified.
-7. Save the project. Afterwards, get the status of SystemDesk again. The expected results are:
+8. Save the project. Afterwards, get the status of SystemDesk again. The expected results are:
    - A project is opened.
    - The project is not modified.
-8. Close SystemDesk.
-9. SystemDesk.exe should not be running after the test finishes. Allow a grace period for it to close properly.
+9. Close SystemDesk.
+10. SystemDesk.exe should not be running after the test finishes. Allow a grace period for it to close properly.
 
 Fail the test if any of the expected results are not met, or if SystemDesk.exe is running at the wrong times.
 
