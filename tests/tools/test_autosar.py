@@ -598,3 +598,88 @@ def test_export_imported_autosar_file_unexpected_error(app):
 def test_export_imported_autosar_file_wrong_extension_rejected_by_schema():
     with pytest.raises(ValidationError):
         validate_args(autosar.export_imported_autosar_file, file_path="C:\\Projects\\file.xml")
+
+
+def test_export_project_to_autosar_file_success(app):
+    # arrange
+    file_path = "C:\\Projects\\project.arxml"
+    active_project = MagicMock()
+    packages = (MagicMock(), MagicMock())
+    active_project.RootAutosar.ArPackages.Elements = packages
+    settings = MagicMock()
+    active_project.Serializer.GetNewExportSettings.return_value = settings
+    active_project.Serializer.Export.return_value = True
+    app.ActiveProject = active_project
+
+    # act
+    result = autosar.export_project_to_autosar_file(file_path=file_path)
+
+    # assert
+    assert result["status"] == "success"
+    assert result["exported_file"] == file_path
+    assert "exported successfully" in result["message"].lower()
+    assert settings.FilePath == file_path
+    assert settings.ExportDiagrams is True
+    assert settings.ExportCatalog is True
+    settings.SetPackages.assert_called_once_with(list(packages))
+    active_project.Serializer.Export.assert_called_once_with(settings)
+
+
+def test_export_project_to_autosar_file_export_failed(app):
+    # arrange
+    active_project = MagicMock()
+    active_project.Serializer.Export.return_value = False
+    app.ActiveProject = active_project
+
+    msg = MagicMock()
+    msg.MessageIdentifier = 'Info(93,600,4)'
+    msg.Severity = 'Info'
+    msg.MessageText = 'Preparing'
+    msg.Children.Elements = [MagicMock()]
+    msg.Children.Elements[0].Severity = 'Error'
+    msg.Children.Elements[0].MessageText = 'Export failed'
+    msg.Children.Elements[0].Children.Elements = []
+    app.Messages.Elements = [MagicMock(), msg]
+
+    # act
+    result = autosar.export_project_to_autosar_file(file_path="C:\\Projects\\project.arxml")
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "SYSTEMDESK_OPERATION_FAILED"
+    assert result["details"] == "[Info] Preparing\n  [Error] Export failed"
+
+
+def test_export_project_to_autosar_file_unexpected_error(app):
+    # arrange
+    active_project = MagicMock()
+    active_project.Serializer.Export.side_effect = RuntimeError("export crashed")
+    app.ActiveProject = active_project
+
+    # act
+    result = autosar.export_project_to_autosar_file(file_path="C:\\Projects\\project.arxml")
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "UNEXPECTED_ERROR"
+    assert result["details"] == "export crashed"
+
+
+def test_export_project_to_autosar_file_no_project_open(app):
+    # arrange
+    app.ActiveProject = None
+
+    # act
+    result = autosar.export_project_to_autosar_file(file_path="C:\\Projects\\project.arxml")
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "NO_PROJECT_OPEN"
+
+
+def test_export_project_to_autosar_file_wrong_extension_rejected_by_schema():
+    with pytest.raises(ValidationError):
+        validate_args(autosar.export_project_to_autosar_file, file_path="C:\\Projects\\file.xml")

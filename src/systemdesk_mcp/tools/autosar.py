@@ -452,3 +452,76 @@ def export_imported_autosar_file(
             error_code=ErrorCode.UNEXPECTED_ERROR,
             details=str(exc),
         )
+
+
+@mcp.tool(
+    title="Export Project to AUTOSAR File",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    output_schema=None,
+)
+@logged
+@on_com_thread
+def export_project_to_autosar_file(
+    file_path: Annotated[str, Field(
+        min_length=1,
+        pattern=ARXML_PATTERN,
+        description=(
+            "Absolute local or UNC path of the AUTOSAR file (.arxml) to write. "
+            "An existing file is overwritten. "
+            "Example: 'C:\\Projects\\MyECU\\Project.arxml'"
+        ),
+    )],
+) -> dict[str, Any]:
+    """
+    Export all AUTOSAR packages of the currently open project into a single AUTOSAR file.
+
+    V-ECU configurations are not included. Overwrites an existing file at file_path.
+    Only idempotent if the project content has not changed between calls.
+
+    Preconditions: start_systemdesk must be called first; a project must be open.
+    Returns exported_file path and a confirmation message on success.
+
+    Failure codes (error_type / error_code: condition):
+    - permanent / SYSTEMDESK_NOT_RUNNING: start_systemdesk not called
+    - permanent / NO_PROJECT_OPEN: no project currently open
+    - permanent / SYSTEMDESK_OPERATION_FAILED: SystemDesk failed to write the file (see details)
+    - permanent / UNEXPECTED_ERROR: export call failed
+    """
+    try:
+        project = get_active_project()
+        serializer = project.Serializer
+
+        settings = serializer.GetNewExportSettings()
+        settings.FilePath = file_path
+        settings.ExportDiagrams = True
+        settings.ExportCatalog = True
+        settings.SetPackages(list(project.RootAutosar.ArPackages.Elements))
+
+        if not serializer.Export(settings):
+            return error_response(
+                f"Failed to export the project to AUTOSAR file '{file_path}'.",
+                error_type="permanent",
+                error_code=ErrorCode.SYSTEMDESK_OPERATION_FAILED,
+                # ID of "Preparing AUTOSAR export" message
+                details=_get_last_message_details('Info(93,600,4)'),
+            )
+
+        return success_response({
+            "exported_file": file_path,
+            "message": f"Project exported successfully to AUTOSAR file '{os.path.basename(file_path)}'.",
+        })
+
+    except PermanentError as exc:
+        return error_response(str(exc), error_type="permanent", error_code=exc.error_code)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        return error_response(
+            f"Failed to export the project to AUTOSAR file '{file_path}'.",
+            error_type="permanent",
+            error_code=ErrorCode.UNEXPECTED_ERROR,
+            details=str(exc),
+        )
