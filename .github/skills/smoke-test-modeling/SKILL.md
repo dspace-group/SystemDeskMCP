@@ -31,7 +31,6 @@ Use the SystemDesk MCP Server to verify that SystemDesk can be started, used for
    The following results are expected:
    - `status="success"`.
    - `connection_count=2` and exactly two entries in `connections`, which connect A.PPort to B.RPort1 and A.PPort1 to B.RPort.
-   - Do not require fixed connector names, because SystemDesk generates them.
 6. After connecting ports, use the tools provided by the SystemDesk MCP server to get the status of SystemDesk and whether a project is opened. The expected results are:
    - SystemDesk is running.
    - A project is opened.

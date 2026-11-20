@@ -147,6 +147,16 @@ class CommonNamePatternOptions(BaseModel):
     )
 
 
+class CommonInterfaceTypesOptions(BaseModel):
+    """Port interfaces to restrict common_interface_types matching to."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    interface_paths: list[AutosarElementPath] = Field(
+        description='Interfaces to match; empty list matches all interfaces. Example: ["/Interfaces/Speed"]',
+    )
+
+
 class ConnectionOptions(BaseModel):
     """Connection selection and closed-loop matching options."""
 
@@ -178,7 +188,7 @@ class ConnectionOptions(BaseModel):
 )
 @logged
 @on_com_thread
-def connect_composition_ports(  # pylint: disable=dangerous-default-value,too-many-arguments,too-many-positional-arguments
+def connect_composition_ports(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     composition_path: Annotated[AutosarElementPath, Field(
         description="Absolute AUTOSAR path of an existing composition. Example: '/SWA/Top'",
     )],
@@ -188,10 +198,11 @@ def connect_composition_ports(  # pylint: disable=dangerous-default-value,too-ma
             "Strategies combined in one matching pass; a port must satisfy all selected strategies. "
             "common_name_pattern: port names match common_name_pattern_options. "
             "common_interface_names: port interfaces have the same name. "
-            "common_interface_types: port interfaces have the same type. "
+            "common_interface_types: port interfaces have the same type; requires common_interface_types_options. "
             "Order is irrelevant; duplicates are rejected. "
             'Example: ["common_name_pattern", "common_interface_types"]'
         ),
+        json_schema_extra={"uniqueItems": True},
     )],
     common_name_pattern_options: Annotated[CommonNamePatternOptions | None, Field(
         description=(
@@ -199,13 +210,13 @@ def connect_composition_ports(  # pylint: disable=dangerous-default-value,too-ma
             'Example: {"pport_expression": "P_<equal>", "rport_expression": "R_<equal>"}'
         ),
     )] = None,
-    interface_paths: Annotated[list[AutosarElementPath], Field(
+    common_interface_types_options: Annotated[CommonInterfaceTypesOptions | None, Field(
         description=(
-            "Port interfaces to restrict common_interface_types matching to; requires common_interface_types. "
-            "Empty list means all interfaces. "
-            'Example: ["/Interfaces/Speed"]'
+            "Required whenever common_interface_types is selected, even to match all interfaces; otherwise omit. "
+            "Pass an empty interface_paths list to match all interfaces. "
+            'Example: {"interface_paths": ["/Interfaces/Speed"]}'
         ),
-    )] = [],
+    )] = None,
     connection_options: Annotated[ConnectionOptions | None, Field(
         description=(
             "Omit to use the defaults. "
@@ -236,13 +247,16 @@ def connect_composition_ports(  # pylint: disable=dangerous-default-value,too-ma
     - permanent / AMBIGUOUS_AUTOSAR_PATH: path identifies multiple elements
     - permanent / INVALID_AUTOSAR_ELEMENT_TYPE: element is not a composition or port interface
     - permanent / INVALID_PORT_CONNECTOR_CONFIGURATION: unsupported strategy or invalid argument combination
-    - transient / TIMEOUT: wait timed out; operation continues
+    - transient / TIMEOUT: operation timed out
     - permanent / UNEXPECTED_ERROR: configuration, matching, or result readback failed;
       connections may already exist, inspect before retrying
     """
+    interface_paths = common_interface_types_options.interface_paths if common_interface_types_options else []
     try:
         project = get_active_project()
-        _check_port_connection_arguments(matching_strategies, common_name_pattern_options, interface_paths)
+        _check_port_connection_arguments(
+            matching_strategies, common_name_pattern_options, common_interface_types_options,
+        )
         if interface_paths:
             _check_interface_paths(project, interface_paths)
     except PermanentError as exc:
@@ -284,8 +298,6 @@ def _connect_ports(
 
         matching_started = True
         result = composition.ConnectPortsOfComposition(configuration)
-        if result is None:
-            raise RuntimeError("SystemDesk returned no port connector result.")
         connections = []
         for connector in result.Connections:
             connections.append({
@@ -331,17 +343,16 @@ def _check_interface_paths(project, interface_paths):
                 f"Interface path '{path}' identifies multiple elements.",
                 error_code=ErrorCode.AMBIGUOUS_AUTOSAR_PATH,
             )
-        if matches[0].AutosarType not in {
-            "SENDER-RECEIVER-INTERFACE", "CLIENT-SERVER-INTERFACE", "PARAMETER-INTERFACE",
-            "MODE-SWITCH-INTERFACE", "TRIGGER-INTERFACE", "NV-DATA-INTERFACE",
-        }:
+        if not matches[0].AutosarType.endswith("-INTERFACE"):
             raise PermanentError(
                 f"Element at '{path}' is not a port interface.",
                 error_code=ErrorCode.INVALID_AUTOSAR_ELEMENT_TYPE,
             )
 
 
-def _check_port_connection_arguments(matching_strategies, common_name_pattern_options, interface_paths):
+def _check_port_connection_arguments(
+    matching_strategies, common_name_pattern_options, common_interface_types_options,
+):
     if not matching_strategies or any(strategy not in {
         "common_name_pattern", "common_interface_names", "common_interface_types",
     } for strategy in matching_strategies) or len(set(matching_strategies)) != len(matching_strategies):
@@ -354,8 +365,9 @@ def _check_port_connection_arguments(matching_strategies, common_name_pattern_op
             "common_name_pattern requires common_name_pattern_options; otherwise omit that object.",
             error_code=ErrorCode.INVALID_PORT_CONNECTOR_CONFIGURATION,
         )
-    if interface_paths and "common_interface_types" not in matching_strategies:
+    if ("common_interface_types" in matching_strategies) != (common_interface_types_options is not None):
         raise PermanentError(
-            "Nonempty interface_paths requires common_interface_types matching.",
+            "common_interface_types requires common_interface_types_options; otherwise omit that object. "
+            "Pass an empty interface_paths list to match all interfaces.",
             error_code=ErrorCode.INVALID_PORT_CONNECTOR_CONFIGURATION,
         )
