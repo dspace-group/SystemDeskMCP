@@ -234,6 +234,9 @@ def connect_composition_ports(  # pylint: disable=too-many-arguments,too-many-po
     Creates assembly connectors between component instances and delegation connectors
     to existing composition boundary ports. Never creates ports or connects ports
     without interfaces. All inputs are checked before the model is changed.
+    Ports with different but compatible interfaces of the same kind (e.g. both sender-receiver)
+    can be connected, but only with common_name_pattern as the sole strategy;
+    common_interface_* strategies never connect different interfaces.
     Returns path, connection_count and connections, alongside status. Each connection
     includes path, type, provider and requester. Endpoints contain component and port
     prototype names; component is null for a composition boundary endpoint.
