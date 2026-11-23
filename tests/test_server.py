@@ -15,6 +15,18 @@ import systemdesk_mcp.server as srv
 from systemdesk_mcp import runtime
 
 
+@pytest.mark.anyio
+async def test_tool_schemas_have_no_top_level_combinators():
+    # Some clients reject tool input schemas that start with a combinator.
+    tools = await _registered_function_tools(srv.mcp)
+
+    for tool in tools:
+        assert not {"oneOf", "anyOf", "allOf", "not", "enum"} & tool.parameters.keys(), (
+            f"Tool '{tool.name}': input schema must not use top-level combinators."
+        )
+        assert tool.parameters.get("type") == "object"
+
+
 async def _registered_function_tools(mcp):
     """Return registered tools after checking they can be inspected as functions."""
     tools = await mcp.list_tools()
