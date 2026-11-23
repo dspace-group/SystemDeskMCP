@@ -39,6 +39,7 @@ def start_systemdesk(
     - permanent / PROGID_NOT_REGISTERED: SystemDesk ProgID not registered
     - permanent / ACCESS_DENIED: access denied
     - transient / BLOCKED_BY_DIALOG: SystemDesk blocked by open dialog
+    - transient / TIMEOUT: SystemDesk did not start in time (e.g. slow COM server start); call again
     - permanent / UNEXPECTED_ERROR: other failure while starting SystemDesk
 
     Hint: This tool does not provide a timeout parameter,
@@ -79,8 +80,17 @@ def start_systemdesk(
     except Exception as exc:  # pylint: disable=broad-exception-caught
         exc_str = str(exc)
         runtime._application = None
+        hresult = getattr(exc, "hresult", None)
+        server_start_failed = isinstance(hresult, int) and (hresult & 0xFFFFFFFF) == 0x80080005  # CO_E_SERVER_EXEC_FAILURE
 
-        if "blocked" in exc_str.lower() or "rejected" in exc_str.lower():
+        if server_start_failed:
+            message = (
+                "SystemDesk did not start in time. "
+                "Wait a few seconds and call start_systemdesk again."
+            )
+            error_type = "transient"
+            error_code = ErrorCode.TIMEOUT
+        elif "blocked" in exc_str.lower() or "rejected" in exc_str.lower():
             message = (
                 "SystemDesk blocked the automation request. "
                 "A modal dialog (e.g. license warning, unsaved project prompt) may be open in SystemDesk. "

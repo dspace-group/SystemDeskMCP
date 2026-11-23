@@ -2,7 +2,7 @@
 
 import os
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 from pydantic import ValidationError
@@ -213,7 +213,11 @@ def test_generate_vecu_bsw_success(app):
         "vecu_name": "MyVEcu",
         "message": "Execution of BSW generation for V-ECU Implementation was successful.",
     }
-    v_ecu.EcuConfiguration.StartBswGeneration.assert_called_once_with("V-ECU Implementation")
+    assert v_ecu.mock_calls == [
+        call.EcuConfiguration.CreateOrUpdateEcuSystem(),
+        call.EcuConfiguration.StartBswGeneration("V-ECU Implementation"),
+        call.Synchronize(),
+    ]
 
 
 def test_generate_vecu_bsw_success_when_error_messages_is_none(app):

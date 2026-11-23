@@ -25,6 +25,29 @@ def test_start_systemdesk_win32com_missing():
     assert result["error_code"] == "WIN32COM_NOT_INSTALLED"
 
 
+@pytest.mark.parametrize(
+    "hresult",
+    [0x80080005, 0x80080005 - 0x100000000],
+)
+def test_start_systemdesk_classifies_server_start_failure(hresult):
+    # arrange
+    runtime._application = None
+    exc = RuntimeError("COM failure")
+    setattr(exc, "hresult", hresult)
+
+    with patch("win32com.client.Dispatch", side_effect=exc):
+        # act
+        result = lifecycle.start_systemdesk()
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "transient"
+    assert result["error_code"] == "TIMEOUT"
+    assert result["details"] == "COM failure"
+    assert "call start_systemdesk again" in result["message"]
+    assert runtime._application is None
+
+
 def test_close_systemdesk_not_running_is_no_op():
     # arrange
     runtime._application = None

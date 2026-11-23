@@ -73,7 +73,9 @@ def generate_vecu_bsw(
     try:
         v_ecu = get_vecu(vecu_name)
 
+        v_ecu.EcuConfiguration.CreateOrUpdateEcuSystem()
         result = v_ecu.EcuConfiguration.StartBswGeneration(_BSW_GENERATION_NAME)
+        v_ecu.Synchronize()
 
         error_messages = result.ErrorMessages
         if error_messages is None or error_messages.Count == 0:

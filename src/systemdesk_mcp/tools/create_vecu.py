@@ -302,6 +302,7 @@ def get_or_create_vecu(  # pylint: disable=too-many-arguments,too-many-positiona
                 details=json.dumps(collected, default=str) if collected else None,
             )
 
+        v_ecu.Synchronize()
         return success_response({
             **_vecu_response(v_ecu),
             "created": True,
