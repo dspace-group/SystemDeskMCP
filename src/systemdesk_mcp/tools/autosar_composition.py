@@ -13,8 +13,32 @@ from systemdesk_mcp.common import (
     success_response,
 )
 from systemdesk_mcp.mcp_app import mcp
-from systemdesk_mcp.tools.autosar import resolve_component
 from systemdesk_mcp.runtime import get_active_project, logged, on_com_thread
+
+
+def resolve_component(project, path):
+    """Return the SW component type at the AUTOSAR path in project.
+
+    Raises AUTOSAR_ELEMENT_NOT_FOUND if no element exists at path, AMBIGUOUS_AUTOSAR_PATH if path
+    identifies several elements, and INVALID_AUTOSAR_ELEMENT_TYPE if the element is not a SwComponentType.
+    """
+    matches = project.GetElementsByARPath(path)
+    if not matches:
+        raise PermanentError(
+            f"No component found at '{path}'.", error_code=ErrorCode.AUTOSAR_ELEMENT_NOT_FOUND,
+        )
+    if len(matches) != 1:
+        raise PermanentError(
+            f"Component path '{path}' identifies multiple elements.",
+            error_code=ErrorCode.AMBIGUOUS_AUTOSAR_PATH,
+        )
+    component = matches[0]
+    if not component.AutosarType.endswith("-SW-COMPONENT-TYPE"):
+        raise PermanentError(
+            f"Element at '{path}' is not a SwComponentType.",
+            error_code=ErrorCode.INVALID_AUTOSAR_ELEMENT_TYPE,
+        )
+    return component
 
 
 @mcp.tool(

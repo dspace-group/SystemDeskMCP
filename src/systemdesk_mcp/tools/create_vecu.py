@@ -16,7 +16,7 @@ from systemdesk_mcp.common import (
 )
 from systemdesk_mcp.mcp_app import mcp
 from systemdesk_mcp.runtime import get_active_project, get_app, logged, on_com_thread
-from systemdesk_mcp.tools.autosar import resolve_component
+from systemdesk_mcp.tools.autosar_composition import resolve_component
 
 _FALLBACK_COMPONENT_TYPES = (
     "COMPOSITION-SW-COMPONENT-TYPE",

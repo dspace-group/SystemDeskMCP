@@ -251,30 +251,6 @@ def _flatten_description_details(details: list[dict[str, Any]]) -> Iterable[str]
 def _markdown_line_breaks(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
 
-def resolve_component(project, path):
-    """Return the SW component type at the AUTOSAR path in project.
-
-    Raises AUTOSAR_ELEMENT_NOT_FOUND if no element exists at path, AMBIGUOUS_AUTOSAR_PATH if path
-    identifies several elements, and INVALID_AUTOSAR_ELEMENT_TYPE if the element is not a SwComponentType.
-    """
-    matches = project.GetElementsByARPath(path)
-    if not matches:
-        raise PermanentError(
-            f"No component found at '{path}'.", error_code=ErrorCode.AUTOSAR_ELEMENT_NOT_FOUND,
-        )
-    if len(matches) != 1:
-        raise PermanentError(
-            f"Component path '{path}' identifies multiple elements.",
-            error_code=ErrorCode.AMBIGUOUS_AUTOSAR_PATH,
-        )
-    component = matches[0]
-    if not component.AutosarType.endswith("-SW-COMPONENT-TYPE"):
-        raise PermanentError(
-            f"Element at '{path}' is not a SwComponentType.",
-            error_code=ErrorCode.INVALID_AUTOSAR_ELEMENT_TYPE,
-        )
-    return component
-
 
 @mcp.tool(
     title="Export Imported AUTOSAR File",
