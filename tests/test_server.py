@@ -1,5 +1,4 @@
 """Tests for server behavior."""
-# pylint: disable=protected-access
 
 import inspect
 import json

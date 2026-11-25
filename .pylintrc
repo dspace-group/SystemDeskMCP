@@ -1,6 +1,9 @@
 [MAIN]
 ignore-patterns=^\.venv/.*,^\.git/.*
 
+[MESSAGES CONTROL]
+enable=useless-suppression
+
 [BASIC]
 no-docstring-rgx=^(_|test_)
 
