@@ -475,7 +475,7 @@ def _module_validation_errors(ecu_configuration, modules: list[Any]) -> list[dic
 )
 @logged
 @on_com_thread
-def configure_runnable_mapping(  # pylint: disable=too-many-locals
+def configure_runnable_mapping(
     tasks: Annotated[Optional[list[OsTaskSpec]], Field(
         min_length=1,
         description=(
