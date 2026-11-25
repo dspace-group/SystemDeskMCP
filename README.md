@@ -9,7 +9,7 @@ SystemDesk acts as a strong partner for AI-driven AUTOSAR generation, where AI a
 ## Prerequisites
 
 - Installed dSPACE SystemDesk with a valid license
-- Python 3.10 or newer
+- Python 3.12 or newer
 - `uv`, the Python package and project manager used to create the environment, install dependencies, and run the server from this checkout. Install it from the official Astral documentation: <https://docs.astral.sh/uv/getting-started/installation/>
 - An MCP client (e.g. VS Code, Cursor, Claude Desktop)
 
