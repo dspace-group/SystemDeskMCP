@@ -33,6 +33,8 @@ When adding or changing a tool, follow [Extending the Server](README.md#extendin
 
 Tool modules are imported explicitly in `tools/__init__.py`. Add new domain modules to its imports and `__all__`; no server imports or re-exports are needed. Adding tools to an already imported module requires no registration changes. Shared helpers and constraints have public names; module implementation details remain underscore-prefixed.
 
+Put tool-specific guidance in that tool's function docstring and Pydantic `Field` descriptions so FastMCP exposes it through the tool schema. Do not move tool-specific information into `mcp_app.py` (server instructions) to compensate for missing or unclear tool descriptions.
+
 ## Testing conventions
 
 - Arrange / act / assert structure with comments.
