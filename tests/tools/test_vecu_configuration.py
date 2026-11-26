@@ -13,21 +13,12 @@ from pydantic import TypeAdapter, ValidationError
 
 from systemdesk_mcp import common, runtime
 from systemdesk_mcp.tools import vecu_configuration as vc
-from systemdesk_mcp.tools.vecu_configuration import (
-    InterventionPointSpec,
-    OsTaskSpec,
-    RunnableMappingSpec,
-)
+from systemdesk_mcp.tools.vecu_configuration import InterventionPointSpec
 from tests.helpers import validate_args
 
 READ, WRITE = 0, 2
 KIND_OPTION_READ_AND_WRITE_ONLY = 3
 NO_SERVICE, DAP_SERVICE, RTE_SERVICE_PORT = 0, 1, 2
-DEFAULT_TASK_ACTIVATION = 1
-DEFAULT_TICK_DURATION = -1.0
-MIN_PERIOD_MS, MAX_PERIOD_MS = 0.0001, 3_600_000
-OS_PATH = "/ArPackage/EcuConfiguration_Test_Ecu/Os"
-RTE_PATH = "/ArPackage/EcuConfiguration_Test_Ecu/Rte"
 
 
 # --- Fakes of the SystemDesk object model ---
@@ -170,19 +161,9 @@ class World:
     """A project with V-ECUs, one ECU configuration with Os, Rte and RTE interventions."""
 
     def __init__(self, app, vecu_names=("Test_Ecu",)):
-        self.app = app
         self.tasks = Collection(Task)
-        self.os_cfg = SimpleNamespace(OsTasks=self.tasks, AUTOSARPathName=OS_PATH)
-        self.activations = []
-        self.rte_cfg = SimpleNamespace(
-            AUTOSARPathName=RTE_PATH,
-            RteSwComponentInstances=Collection(_instance),
-            RteBswModuleInstances=Collection(),
-            RteOsInteractions=Collection(elements=[SimpleNamespace(
-                ShortName="RteOsInteraction", RteUsedOsActivations=SimpleNamespace(Elements=self.activations))]),
-            RunBswPlugin=MagicMock(side_effect=self._update_rte_configuration),
-        )
-        self.plugin_errors = []
+        self.os_cfg = SimpleNamespace(OsTasks=self.tasks)
+        self.rte_cfg = SimpleNamespace(RteSwComponentInstances=Collection(_instance))
         self.events = [
             _event("InitEvent", "INIT-EVENT", "Init"),
             _event("Calc10ms", "TIMING-EVENT", "Calc", 0.01),
@@ -192,19 +173,19 @@ class World:
         self.component = _component("Ctrl", self.events)
         self.service_component = _component("Rte", [], "SERVICE-SW-COMPONENT-TYPE")
         self.rti = RteInterventions()
-        self.rule_results = []
+        self.schedule_calls = []
         self.ecu = MagicMock()
         self.ecu.Name = "EcuConfiguration_Test_Ecu"
         self.ecu.GetModuleConfigurationByDefinitionName.side_effect = self._module
         self.ecu.EcuExtractSystem.RootSwCompositionPrototype.SoftwareCompositionTref.Components.Elements = [
             self.component, self.service_component]
         self.ecu.RteInterventions = self.rti
-        self.ecu.Validate.ResultStructure.RuleResults = self.rule_results
+        self.ecu.ClearRunnableSchedule.side_effect = self._clear_runnable_schedule
+        self.ecu.GenerateRunnableSchedule.side_effect = self._generate_runnable_schedule
         self.modules = {"Os": self.os_cfg, "Rte": self.rte_cfg}
         self.vecus = [SimpleNamespace(Name=name, EcuConfiguration=self.ecu) for name in vecu_names]
         app.ActiveProject.VEcus.Elements = self.vecus
         app.ActiveProject.VEcus.Item.side_effect = self._vecu
-        app.BatchMode = False
 
     def _module(self, name, _inactive):
         return self.modules.get(name)
@@ -215,17 +196,26 @@ class World:
             raise RuntimeError("not found")
         return found
 
-    def _update_rte_configuration(self, command):
-        assert command == "Update Rte Configuration"
-        assert self.app.BatchMode is True
-        if self.rte_cfg.RteSwComponentInstances.Item("Ctrl") is None:
-            self.rte_cfg.RteSwComponentInstances.Add("Ctrl")
-        for task in self.tasks.Elements:
-            if not any(a.RteActivationOsTaskRef is task for a in self.activations):
-                self.activations.append(SimpleNamespace(
-                    ShortName=task.ShortName, RteActivationOsTaskRef=task, RteExpectedTickDuration=DEFAULT_TICK_DURATION))
-        errors = [SimpleNamespace(MessageIdentifier=i, MessageText=t) for i, t in self.plugin_errors]
-        return SimpleNamespace(ErrorMessages=SimpleNamespace(Count=len(errors), Elements=errors))
+    def _clear_runnable_schedule(self):
+        """Like SystemDesk, delete all tasks with their mappings; also succeeds if there is nothing to delete."""
+        self.schedule_calls.append("clear")
+        self.tasks.Elements.clear()
+        for instance in self.rte_cfg.RteSwComponentInstances.Elements:
+            instance.RteEventToTaskMappings.Elements.clear()
+        return True
+
+    def _generate_runnable_schedule(self):
+        """Like SystemDesk, create the tasks if required and map only the events that are not mapped yet."""
+        self.schedule_calls.append("generate")
+        task10 = self.tasks.Item("Task10ms") or self.tasks.Add("Task10ms")
+        task10.OsTaskPeriod = 0.01
+        task_init = self.tasks.Item("TaskInit") or self.tasks.Add("TaskInit")
+        instance = self.rte_cfg.RteSwComponentInstances.Item("Ctrl")
+        for event_name, task, position in [("InitEvent", task_init, 0), ("Calc10ms", task10, 1), ("Corr10ms", task10, 0)]:
+            if instance is None or instance.RteEventToTaskMappings.Item(event_name) is None:
+                self.map(event_name, task, position)
+                instance = self.rte_cfg.RteSwComponentInstances.Item("Ctrl")
+        return True
 
     def map(self, event_name, task, position):
         instance = self.rte_cfg.RteSwComponentInstances.Item("Ctrl") or self.rte_cfg.RteSwComponentInstances.Add("Ctrl")
@@ -235,31 +225,15 @@ class World:
         mapping.RtePositionInTask = position
         return mapping
 
-    def rule(self, rule_id, text, path, severity="Error"):
-        entity = SimpleNamespace(AUTOSARPathName=path) if path else SimpleNamespace()
-        self.rule_results.append(SimpleNamespace(
-            Severity=severity, RuleId=rule_id, Entity=entity,
-            Message=SimpleNamespace(Text=text, ChildMessages=[])))
-
 
 @pytest.fixture(name="world")
 def _world(app):
     return World(app)
 
 
-def _mapping_spec(task="Task10ms", event="Calc10ms", runnable="Calc", position=None, component="Ctrl"):
-    return RunnableMappingSpec(task=task, component=component, runnable=runnable, rte_event=event, position=position)
-
-
 # --- Common preconditions ---
 
-def _call(tool):
-    if tool is vc.configure_runnable_mapping:
-        return tool(tasks=[OsTaskSpec(name="Task10ms", priority=1)])
-    return tool()
-
-
-TOOLS = [vc.get_vecu_configuration, vc.configure_runnable_mapping, vc.configure_rte_interventions]
+TOOLS = [vc.get_vecu_configuration, vc.generate_runnable_mapping, vc.configure_rte_interventions]
 
 
 @pytest.mark.parametrize("tool", TOOLS)
@@ -268,7 +242,7 @@ def test_not_started(tool):
     runtime._application = None
 
     # act
-    result = _call(tool)
+    result = tool()
 
     # assert
     assert result["status"] == "error"
@@ -281,7 +255,7 @@ def test_no_project_open(app, tool):
     app.ActiveProject = None
 
     # act
-    result = _call(tool)
+    result = tool()
 
     # assert
     assert result["status"] == "error"
@@ -295,7 +269,7 @@ def test_no_vecu_in_project(app, tool):
     World(app, vecu_names=())
 
     # act
-    result = _call(tool)
+    result = tool()
 
     # assert
     assert result["error_code"] == "VECU_NOT_FOUND"
@@ -308,8 +282,7 @@ def test_unknown_vecu_name_lists_available_vecus(app, tool):
     World(app, vecu_names=("Controller", "Test_Ecu"))
 
     # act
-    result = tool(vecu_name="Missing") if tool is not vc.configure_runnable_mapping else tool(
-        tasks=[OsTaskSpec(name="Task10ms", priority=1)], vecu_name="Missing")
+    result = tool(vecu_name="Missing")
 
     # assert
     assert result["error_code"] == "VECU_NOT_FOUND"
@@ -322,7 +295,7 @@ def test_single_vecu_is_used_by_default(app, tool):
     World(app, vecu_names=("Controller",))
 
     # act
-    result = _call(tool)
+    result = tool()
 
     # assert
     assert result["status"] == "success"
@@ -335,7 +308,7 @@ def test_several_vecus_without_name_require_selection(app, tool):
     World(app, vecu_names=("Controller", "Test_Ecu"))
 
     # act
-    result = _call(tool)
+    result = tool()
 
     # assert
     assert result["status"] == "error"
@@ -365,7 +338,7 @@ def test_com_failure_is_permanent_unexpected_error(world, tool):
     world.ecu.RteInterventions = SimpleNamespace()
 
     # act
-    result = _call(tool)
+    result = tool()
 
     # assert
     assert result["status"] == "error"
@@ -413,7 +386,7 @@ def test_get_returns_only_included_lists(world):
 
     # assert
     assert set(result) == {"status", "vecu_name", "runnables", "os_tasks"}
-    world.rte_cfg.RunBswPlugin.assert_not_called()
+    assert not world.schedule_calls
 
 
 def test_get_runnables_without_rte_module(world):
@@ -504,268 +477,86 @@ def test_get_removed_sections_argument_rejected_by_schema():
         validate_args(vc.get_vecu_configuration, sections=["os_tasks"])
 
 
-# --- configure_runnable_mapping ---
+# --- generate_runnable_mapping ---
 
-def test_mapping_creates_tasks_runs_update_and_maps_events(world):
+def test_mapping_clears_existing_tasks_and_mappings_then_generates_mapping(world):
+    # arrange
+    existing = world.tasks.Add("Existing")
+    world.map("Calc10ms", existing, 5)
+
     # act
-    result = vc.configure_runnable_mapping(
-        tasks=[OsTaskSpec(name="Task10ms", period_ms=10, priority=10), OsTaskSpec(name="TaskInit", priority=20)],
-        mappings=[
-            _mapping_spec("TaskInit", "InitEvent", "Init", 0),
-            _mapping_spec("Task10ms", "Calc10ms", "Calc", 0),
-            _mapping_spec("Task10ms", "Corr10ms", "Corr", 1),
+    result = vc.generate_runnable_mapping()
+
+    # assert
+    assert world.schedule_calls == ["clear", "generate"]
+    assert world.tasks.Item("Existing") is None
+    assert result == {
+        "status": "success",
+        "vecu_name": "Test_Ecu",
+        "mapping": [
+            {"component": "Ctrl", "runnable": "Init", "rte_event": "InitEvent", "event_type": "INIT-EVENT",
+             "period_ms": None, "mapped_task": "TaskInit", "position": 0},
+            {"component": "Ctrl", "runnable": "Calc", "rte_event": "Calc10ms", "event_type": "TIMING-EVENT",
+             "period_ms": 10.0, "mapped_task": "Task10ms", "position": 1},
+            {"component": "Ctrl", "runnable": "Corr", "rte_event": "Corr10ms", "event_type": "TIMING-EVENT",
+             "period_ms": 10.0, "mapped_task": "Task10ms", "position": 0},
         ],
-    )
-
-    # assert
-    assert result["status"] == "success"
-    assert result["tasks"] == [
-        {"name": "Task10ms", "period_ms": 10.0, "priority": 10},
-        {"name": "TaskInit", "period_ms": None, "priority": 20},
-    ]
-    assert [(m["task"], m["rte_event"], m["position"]) for m in result["mappings"]] == [
-        ("TaskInit", "InitEvent", 0), ("Task10ms", "Calc10ms", 0), ("Task10ms", "Corr10ms", 1)]
-    assert result["schedule_generated"] is True
-    assert result["errors"] == []
-    task10 = world.tasks.Item("Task10ms")
-    assert task10.OsTaskActivation == DEFAULT_TASK_ACTIVATION
-    assert task10.OsTaskPeriod == pytest.approx(0.01)
-    assert {a.ShortName: a.RteExpectedTickDuration for a in world.activations} == {
-        "Task10ms": pytest.approx(0.01), "TaskInit": DEFAULT_TICK_DURATION}
-    mapping = world.rte_cfg.RteSwComponentInstances.Item("Ctrl").RteEventToTaskMappings.Item("Calc10ms")
-    assert mapping.RteMappedToTaskRef is task10
-    assert mapping.RteEventRef.ShortName == "Calc10ms"
-    world.rte_cfg.RunBswPlugin.assert_called_once_with("Update Rte Configuration")
-    assert world.app.BatchMode is False
-
-
-def test_mapping_updates_existing_task_and_keeps_period_if_omitted(world):
-    # arrange
-    task = world.tasks.Add("Task10ms")
-    task.OsTaskPeriod = 0.01
-    task.OsTaskActivation = 3
-
-    # act
-    result = vc.configure_runnable_mapping(tasks=[OsTaskSpec(name="Task10ms", priority=7)])
-
-    # assert
-    assert result["tasks"] == [{"name": "Task10ms", "period_ms": 10.0, "priority": 7}]
-    assert task.OsTaskActivation == 3
-    assert len(world.tasks.Elements) == 1
-
-
-def test_mapping_without_position_appends_after_rte_and_bsw_mappings(world):
-    # arrange
-    task = world.tasks.Add("Task10ms")
-    world.map("Calc10ms", task, 0)
-    bsw_mapping = SimpleNamespace(RteBswMappedToTaskRef=task, RteBswPositionInTask=4)
-    world.rte_cfg.RteBswModuleInstances.Elements.append(
-        SimpleNamespace(RteBswEventToTaskMappings=SimpleNamespace(Elements=[bsw_mapping])))
-
-    # act
-    result = vc.configure_runnable_mapping(mappings=[_mapping_spec("Task10ms", "Corr10ms", "Corr")])
-
-    # assert
-    assert result["mappings"][0]["position"] == 5
-
-
-def test_mapping_without_position_keeps_position_in_same_task(world):
-    # arrange
-    task = world.tasks.Add("Task10ms")
-    world.map("Calc10ms", task, 3)
-
-    # act
-    first = vc.configure_runnable_mapping(mappings=[_mapping_spec("Task10ms", "Calc10ms", "Calc")])
-    second = vc.configure_runnable_mapping(mappings=[_mapping_spec("Task10ms", "Calc10ms", "Calc")])
-
-    # assert
-    assert first["mappings"][0]["position"] == 3
-    assert second["mappings"][0]["position"] == 3
-
-
-def test_mapping_moves_existing_mapping_to_other_task(world):
-    # arrange
-    old_task = world.tasks.Add("Old")
-    new_task = world.tasks.Add("New")
-    mapping = world.map("Calc10ms", old_task, 0)
-
-    # act
-    vc.configure_runnable_mapping(mappings=[_mapping_spec("New", "Calc10ms", "Calc", 2)])
-
-    # assert
-    instance = world.rte_cfg.RteSwComponentInstances.Item("Ctrl")
-    assert instance.RteEventToTaskMappings.Elements == [mapping]
-    assert mapping.RteMappedToTaskRef is new_task
-    assert mapping.RtePositionInTask == 2
+    }
 
 
 def test_mapping_is_idempotent(world):
-    # arrange
-    tasks = [OsTaskSpec(name="Task10ms", period_ms=10, priority=10)]
-    mappings = [_mapping_spec("Task10ms", "Calc10ms", "Calc", 0)]
-
     # act
-    first = vc.configure_runnable_mapping(tasks=tasks, mappings=mappings)
-    second = vc.configure_runnable_mapping(tasks=tasks, mappings=mappings)
+    first = vc.generate_runnable_mapping()
+    second = vc.generate_runnable_mapping()
 
     # assert
     assert first == second
-    assert len(world.tasks.Elements) == 1
-    assert len(world.rte_cfg.RteSwComponentInstances.Item("Ctrl").RteEventToTaskMappings.Elements) == 1
+    assert len(world.tasks.Elements) == 2
+    assert len(world.rte_cfg.RteSwComponentInstances.Item("Ctrl").RteEventToTaskMappings.Elements) == 3
 
 
-def test_mapping_returns_os_and_rte_validation_errors_only(world):
+def test_mapping_fails_without_generating_if_clear_fails(world):
     # arrange
-    world.rule("R808", "Rte - period mismatch", RTE_PATH)
-    world.rule("R870", "Os - missing counter", OS_PATH + "/OsCounter")
-    world.rule("R919", "code files missing", "/ArPackage/EcuConfiguration_Test_Ecu/Sab")
-    world.rule("R999", "warning on Rte", RTE_PATH, severity="Warning")
-    world.rule("R937", "no path", None)
+    world.ecu.ClearRunnableSchedule.side_effect = lambda: False
 
     # act
-    result = vc.configure_runnable_mapping(tasks=[OsTaskSpec(name="Task20ms", period_ms=20, priority=5)])
-
-    # assert
-    assert result["errors"] == [
-        {"message": "R808: Rte - period mismatch", "element": RTE_PATH},
-        {"message": "R870: Os - missing counter", "element": OS_PATH + "/OsCounter"},
-    ]
-    world.ecu.Validate.Do.assert_called_once()
-
-
-@pytest.mark.parametrize(
-    "spec, code, text",
-    [
-        (_mapping_spec(component="Nope"), "AUTOSAR_ELEMENT_NOT_FOUND", "no SW component 'Nope'"),
-        (_mapping_spec(event="Missing"), "AUTOSAR_ELEMENT_NOT_FOUND", "no RTE event 'Missing'"),
-        (_mapping_spec(runnable="Wrong"), "INVALID_ARGUMENTS", "starts runnable 'Calc', not 'Wrong'"),
-        (_mapping_spec(task="NoTask"), "AUTOSAR_ELEMENT_NOT_FOUND", "'NoTask' does not exist"),
-    ],
-)
-def test_mapping_rejects_unknown_elements_without_changes(world, spec, code, text):
-    # arrange
-    world.tasks.Add("Task10ms")
-
-    # act
-    result = vc.configure_runnable_mapping(tasks=[OsTaskSpec(name="New", priority=1)], mappings=[spec])
-
-    # assert
-    assert result["error_code"] == code
-    assert text in result["message"]
-    assert world.tasks.Item("New") is None
-    world.rte_cfg.RunBswPlugin.assert_not_called()
-
-
-@pytest.mark.usefixtures("world")
-def test_mapping_task_given_in_request_does_not_need_to_exist():
-    # act
-    result = vc.configure_runnable_mapping(
-        tasks=[OsTaskSpec(name="Task10ms", period_ms=10, priority=1)], mappings=[_mapping_spec()])
-
-    # assert
-    assert result["status"] == "success"
-
-
-@pytest.mark.parametrize(
-    "tasks, mappings",
-    [
-        ([OsTaskSpec(name="T", priority=1), OsTaskSpec(name="T", priority=2)], []),
-        ([OsTaskSpec(name="Task10ms", priority=1)], [_mapping_spec(position=0), _mapping_spec(position=1)]),
-    ],
-)
-def test_mapping_rejects_duplicates(world, tasks, mappings):
-    # act
-    result = vc.configure_runnable_mapping(tasks=tasks, mappings=mappings)
-
-    # assert
-    assert result["error_code"] == "INVALID_ARGUMENTS"
-    assert world.tasks.Elements == []
-
-
-def test_mapping_reports_update_rte_configuration_errors(world):
-    # arrange
-    world.plugin_errors = [("Error(1,2,3)", "Update failed")]
-
-    # act
-    result = vc.configure_runnable_mapping(tasks=[OsTaskSpec(name="T", priority=1)])
-
-    # assert
-    assert result["error_code"] == "SYSTEMDESK_OPERATION_FAILED"
-    assert "Error(1,2,3): Update failed" in result["message"]
-    assert world.app.BatchMode is False
-
-
-@pytest.mark.parametrize("module", ["Os", "Rte"])
-def test_mapping_requires_os_and_rte_modules(world, module):
-    # arrange
-    del world.modules[module]
-
-    # act
-    result = vc.configure_runnable_mapping(tasks=[OsTaskSpec(name="Task10ms", priority=1)])
-
-    # assert
-    assert result["error_code"] == "AUTOSAR_ELEMENT_NOT_FOUND"
-    assert module in result["message"]
-
-
-@pytest.mark.parametrize(
-    "task",
-    [
-        {"name": "1Task", "priority": 1},
-        {"name": "Task", "priority": -1},
-        {"name": "Task", "priority": 1, "period_ms": 0},
-        {"name": "Task", "priority": 1, "period_ms": 0.00009},
-        {"name": "Task", "priority": 1, "period_ms": 3_600_001},
-        {"name": "Task", "priority": 1, "unknown": 1},
-        {"name": "Task"},
-    ],
-)
-def test_mapping_invalid_task_rejected_by_schema(task):
-    with pytest.raises(ValidationError):
-        validate_args(vc.configure_runnable_mapping, tasks=[task])
-
-
-@pytest.mark.parametrize(
-    "mapping",
-    [
-        {"task": "T", "component": "C", "runnable": "R", "rte_event": "E", "position": -1},
-        {"task": "T", "component": "C", "runnable": "R"},
-        {"task": "T", "component": "C/x", "runnable": "R", "rte_event": "E"},
-    ],
-)
-def test_mapping_invalid_mapping_rejected_by_schema(mapping):
-    with pytest.raises(ValidationError):
-        validate_args(vc.configure_runnable_mapping, mappings=[mapping])
-
-
-@pytest.mark.parametrize("period_ms", [MIN_PERIOD_MS, MAX_PERIOD_MS])
-def test_mapping_task_period_bounds_accepted_by_schema(period_ms):
-    validate_args(vc.configure_runnable_mapping, tasks=[{"name": "Task", "priority": 1, "period_ms": period_ms}])
-
-
-def test_mapping_tasks_and_mappings_are_optional_in_schema():
-    validate_args(vc.configure_runnable_mapping, tasks=[{"name": "Task", "priority": 1}])
-    validate_args(vc.configure_runnable_mapping, mappings=[
-        {"task": "T", "component": "C", "runnable": "R", "rte_event": "E"}])
-
-
-@pytest.mark.parametrize("argument", ["tasks", "mappings"])
-def test_mapping_empty_list_rejected_by_schema(argument):
-    with pytest.raises(ValidationError):
-        validate_args(vc.configure_runnable_mapping, **{argument: []})
-
-
-@pytest.mark.parametrize("arguments", [{}, {"tasks": None, "mappings": None}, {"tasks": [], "mappings": []}])
-def test_mapping_without_tasks_and_mappings_is_rejected(world, arguments):
-    # act
-    result = vc.configure_runnable_mapping(**arguments)
+    result = vc.generate_runnable_mapping()
 
     # assert
     assert result["status"] == "error"
     assert result["error_type"] == "permanent"
-    assert result["error_code"] == "INVALID_ARGUMENTS"
-    assert "at least one of tasks and mappings" in result["message"]
-    world.rte_cfg.RunBswPlugin.assert_not_called()
+    assert result["error_code"] == "SYSTEMDESK_OPERATION_FAILED"
+    assert "could not clear" in result["message"]
+    world.ecu.GenerateRunnableSchedule.assert_not_called()
+
+
+def test_mapping_reports_failed_generation_after_clearing(world):
+    # arrange
+    world.map("Calc10ms", world.tasks.Add("Existing"), 0)
+    world.ecu.GenerateRunnableSchedule.side_effect = lambda: False
+
+    # act
+    result = vc.generate_runnable_mapping()
+
+    # assert
+    assert result["status"] == "error"
+    assert result["error_type"] == "permanent"
+    assert result["error_code"] == "SYSTEMDESK_OPERATION_FAILED"
+    assert "could not generate" in result["message"]
+    assert "already deleted" in result["message"]
+    assert world.tasks.Elements == []
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"tasks": [{"name": "Task10ms", "priority": 1}]},
+        {"mappings": [{"task": "T", "component": "C", "runnable": "R", "rte_event": "E"}]},
+    ],
+)
+def test_mapping_removed_custom_arguments_rejected_by_schema(arguments):
+    with pytest.raises(ValidationError):
+        validate_args(vc.generate_runnable_mapping, **arguments)
 
 
 # --- configure_rte_interventions ---
@@ -981,14 +772,12 @@ def test_interventions_invalid_arguments_rejected_by_schema(arguments):
 @pytest.mark.parametrize("tool", TOOLS)
 @pytest.mark.parametrize("timeout", [0, common.MAX_TIMEOUT_SECONDS + 1])
 def test_timeout_out_of_range_rejected_by_schema(tool, timeout):
-    extra = {"tasks": [], "mappings": []} if tool is vc.configure_runnable_mapping else {}
     with pytest.raises(ValidationError):
-        validate_args(tool, timeout=timeout, **extra)
+        validate_args(tool, timeout=timeout)
 
 
 @pytest.mark.parametrize("tool", TOOLS)
 @pytest.mark.parametrize("vecu_name", ["", "1Ecu", "My Ecu"])
 def test_invalid_vecu_name_rejected_by_schema(tool, vecu_name):
-    extra = {"tasks": [], "mappings": []} if tool is vc.configure_runnable_mapping else {}
     with pytest.raises(ValidationError):
-        validate_args(tool, vecu_name=vecu_name, **extra)
+        validate_args(tool, vecu_name=vecu_name)
