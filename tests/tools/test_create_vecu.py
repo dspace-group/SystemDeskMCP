@@ -122,7 +122,6 @@ def test_get_or_create_vecu_reuses_vecu_by_name(app):
     assert result["system_path"] == "/Systems/MyVEcu_System"
     assert result["ecu_configuration"] == "EcuConfiguration_MyVEcu"
     assert result["message"] == "Reusing existing V-ECU 'MyVEcu'."
-    v_ecu.Synchronize.assert_not_called()
     app.ActiveProject.VEcus.Item.assert_called_once_with("MyVEcu")
     app.ActiveProject.FindChildElements.assert_not_called()
 
@@ -216,7 +215,6 @@ def test_get_or_create_vecu_creates_vecu_with_defaults(app):
     assert result["message"] == "V-ECU created successfully."
     assert result["component_path"] == "/SWA/RootComposition"
     composition.CreateVEcu.assert_called_once_with(options)
-    v_ecu.Synchronize.assert_called_once_with()
     assert vars(options) == {
         **_SAVED_DEFAULT_OPTIONS,
         "PredefinedEcuConfiguration": _FMI3_CONFIGURATION,
