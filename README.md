@@ -8,19 +8,27 @@ SystemDesk acts as a strong partner for AI-driven AUTOSAR generation, where AI a
 
 ## Prerequisites
 
-- Installed dSPACE SystemDesk with a valid license
+- dSPACE SystemDesk 2024-B or newer, installed with a valid license
 - Python 3.12 or newer
 - `uv`, the Python package and project manager used to create the environment, install dependencies, and run the server from this checkout. Install it from the official Astral documentation: <https://docs.astral.sh/uv/getting-started/installation/>
 - An MCP client (e.g. VS Code, Cursor, Claude Desktop)
 
 ## Installation
 
-1. Open the repository/folder.
+1. Clone the repository and check out the latest release tag (`v*`, see the GitHub Releases page). Only tagged releases are intended for use; `main` may contain unreleased changes.
+
+    ```powershell
+    git clone https://github.com/dspace-group/SystemDeskMCP.git
+    cd SystemDeskMCP
+    git tag --list "v*" --sort=-v:refname   # newest release first
+    git checkout <latest-tag>               # e.g. v1.0.0
+    ```
+
 2. Create the project environment and install dependencies from `pyproject.toml` using the following command:
 
-```powershell
-uv sync
-```
+    ```powershell
+    uv sync
+    ```
 
 ## Using with an MCP Client
 
@@ -47,32 +55,6 @@ uv sync
 
 3. Reconnect/reload MCP servers in your client.
 4. Run a quick check prompt, for example: "Call `start_systemdesk()` and report the result."
-
-## Usage (Tool Order)
-
-Recommended flow:
-
-1. `start_systemdesk()`
-2. `create_project(project_path, project_name)` or `open_project(project_file, timeout=60)`
-3. `import_autosar_file(file_path, timeout=60)`
-4. `create_composition(composition_path, component_paths)` (optional)
-5. `validate_autosar(output_format="markdown" | "json", timeout=120)`
-6. `connect_composition_ports(composition_path, matching_strategies=["common_interface_types"])` (optional)
-7. `get_or_create_vecu(vecu_name=None, reuse_existing_vecu=False, component_path=None, system_name=None, predefined_ecu_configuration="Default ECU Configuration for V-ECU FMUs (FMI 3.0)", auto_configure_and_generate=False, timeout=240)` (further optional V-ECU creation options are available)
-8. `get_vecu_configuration(vecu_name=None, include=None, timeout=120)` (optional; inspect runnable, task, and intervention-point names; `include` selects the lists to return, e.g. `["runnables", "os_tasks"]`)
-9. `configure_runnable_mapping(tasks=None, mappings=None, vecu_name=None, timeout=240)` (optional; configure OS tasks and runnable schedules)
-10. `configure_rte_interventions(vecu_name=None, intervention_points=None, access="dap", enable=True, timeout=240)` (optional; create intervention points and services)
-11. `generate_vecu_bsw(vecu_name=None, timeout=240)` (pass the `vecu_name` returned by `get_or_create_vecu`; may be omitted if the project contains exactly one V-ECU)
-12. `export_vecu_fmu(vecu_name=None, target_directory=None, timeout=600)`
-13. `save_project()` (optional, saves the project and keeps it open)
-14. `close_project(save_project=True)` (optional, only to close the project)
-15. `close_systemdesk(save_project=True)` (optional, only to quit SystemDesk)
-
-Important:
-
-- `start_systemdesk()` must be called before tools whose precondition requires it.
-- `import_autosar_file` only supports files with the `.arxml` extension.
-- If SystemDesk shows blocking dialogs, startup/COM access may fail transiently.
 
 ## Development Setup
 
